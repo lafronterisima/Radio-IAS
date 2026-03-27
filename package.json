@@ -1,7 +1,7 @@
-
 {
   "name": "radio-ia",
   "version": "1.0.0",
+  "description": "Radio IA automatizada con AzuraCast",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
@@ -10,7 +10,11 @@
   "dependencies": {
     "axios": "^1.6.0",
     "form-data": "^4.0.0",
-    "microsoft-cognitiveservices-speech-sdk": "^1.36.0"
+    "microsoft-cognitiveservices-speech-sdk": "^1.36.0",
+    "rss-parser": "^3.13.0"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "license": "MIT"
 }
