@@ -1,14 +1,16 @@
+
 {
   "name": "radio-ia",
   "version": "1.0.0",
   "main": "index.js",
   "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "axios": "^1.6.0",
     "form-data": "^4.0.0",
-    "microsoft-cognitiveservices-speech-sdk": "^1.36.0",
-    "fluent-ffmpeg": "^2.1.2",
-    "@ffmpeg-installer/ffmpeg": "^1.1.0"
+    "microsoft-cognitiveservices-speech-sdk": "^1.36.0"
   },
   "license": "MIT"
 }
