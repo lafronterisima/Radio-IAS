@@ -1,11 +1,11 @@
-
- const sdk = require("microsoft-cognitiveservices-speech-sdk");
+const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const axios = require("axios");
 const fs = require("fs");
 const { exec } = require("child_process");
+const FormData = require("form-data");
 const http = require("http");
 
-// 🔐 VARIABLES (Render ENV)
+// 🔐 ENV
 const AZURE_KEY = process.env.AZURE_KEY;
 const AZURE_REGION = process.env.AZURE_REGION;
 const AZURA_API_URL = process.env.AZURA_API_URL;
@@ -16,7 +16,7 @@ const STATION_ID = process.env.STATION_ID;
 let ultimaCancion = "";
 let contador = 0;
 
-// 🎲 FRASES DINÁMICAS
+// 🎲 FRASES
 function generarFrase(cancion) {
     const frases = [
         `Atención porque esto está sonando ahora mismo... ${cancion}`,
@@ -28,25 +28,22 @@ function generarFrase(cancion) {
 }
 
 // 🕒 HORA NATURAL
-function obtenerHoraActual() {
+function obtenerHora() {
     const ahora = new Date();
-    const h = ahora.getHours();
-    const m = ahora.getMinutes();
-    return `Son las ${h} con ${m} minutos en La Fronterísima.`;
+    return `Son las ${ahora.getHours()} con ${ahora.getMinutes()} minutos en La Fronterísima.`;
 }
 
-// 🎙️ VOZ DOBLE (CABINA PRO)
-async function generarAudioAzure(texto1, texto2 = null) {
+// 🎙️ VOZ (DOBLE OPCIONAL)
+async function generarAudio(texto1, texto2 = null) {
     const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
-    const audioConfig = sdk.AudioConfig.fromAudioFileOutput("voz_temp.mp3");
-    const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
+    const audioConfig = sdk.AudioConfig.fromAudioFileOutput("voz.mp3");
+    const synth = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
 
     let ssml;
 
     if (texto2) {
         ssml = `
-        <speak version="1.0" xml:lang="es-ES"
-        xmlns:mstts="https://www.w3.org/2001/mstts">
+        <speak xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="es-ES">
             <voice name="es-ES-AlvaroNeural">
                 <mstts:express-as style="cheerful">${texto1}</mstts:express-as>
             </voice>
@@ -57,121 +54,104 @@ async function generarAudioAzure(texto1, texto2 = null) {
         </speak>`;
     } else {
         ssml = `
-        <speak version="1.0" xml:lang="es-ES"
-        xmlns:mstts="https://www.w3.org/2001/mstts">
+        <speak xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="es-ES">
             <voice name="es-ES-AlvaroNeural">
                 <mstts:express-as style="cheerful">
-                    <prosody rate="1.05" pitch="+2%">
-                        ${texto1}
-                    </prosody>
+                    <prosody rate="1.05">${texto1}</prosody>
                 </mstts:express-as>
             </voice>
         </speak>`;
     }
 
-    return new Promise((resolve, reject) => {
-        synthesizer.speakSsmlAsync(
-            ssml,
-            () => {
-                synthesizer.close();
-                resolve("voz_temp.mp3");
-            },
-            reject
-        );
+    return new Promise((res, rej) => {
+        synth.speakSsmlAsync(ssml, () => {
+            synth.close();
+            res();
+        }, rej);
     });
 }
 
-// 🎚️ MEZCLA PRO (DUCKING REAL)
-async function mezclarAudio() {
-    return new Promise((resolve, reject) => {
+// 🎚️ MEZCLA
+async function mezclar() {
+    return new Promise((res, rej) => {
         const cmd = `
-        ffmpeg -y \
-        -i cortina.mp3 \
-        -i voz_temp.mp3 \
-        -filter_complex "
-        [0:a]volume=0.25[a0];
-        [1:a]volume=1.4[a1];
-        [a0][a1]sidechaincompress=threshold=0.02:ratio=10[out]
-        " \
-        -map "[out]" -c:a libmp3lame -q:a 2 final_radio.mp3
+        ffmpeg -y -i cortina.mp3 -i voz.mp3 \
+        -filter_complex "[0:a]volume=0.25[a0];[1:a]volume=1.4[a1];[a0][a1]sidechaincompress=threshold=0.02:ratio=10[out]" \
+        -map "[out]" -c:a libmp3lame -q:a 2 final.mp3
         `;
-        exec(cmd, (err) => {
-            if (err) reject(err);
-            else resolve("final_radio.mp3");
-        });
+        exec(cmd, err => err ? rej(err) : res());
     });
 }
 
-// 📡 ENVIAR AL STREAM (LIVE)
-async function enviarAlStream(filePath) {
-    return new Promise((resolve, reject) => {
-        const cmd = `ffmpeg -re -i ${filePath} -c:a libmp3lame -b:a 128k -f mp3 "http://fronterisima:fronterisima@az.azurafree.eu:8225/fronterisima"`;
-        exec(cmd, (err) => {
-            if (err) reject(err);
-            else resolve();
-        });
+// 📤 SUBIR A AZURACAST
+async function subir(filePath) {
+    const name = `ia_${Date.now()}.mp3`;
+    const form = new FormData();
+    form.append("file", fs.createReadStream(filePath));
+
+    await axios.post(`${AZURA_API_URL}/station/${STATION_ID}/files`, form, {
+        headers: {
+            ...form.getHeaders(),
+            "X-API-Key": AZURA_API_KEY
+        },
+        params: { path: `ia/${name}` }
     });
+
+    console.log("📻 Subido:", name);
 }
 
-// 🎙️ LOCUCIÓN COMPLETA
-async function locucion(texto1, texto2 = null) {
-    console.log("🎙️ Generando voz...");
-    await generarAudioAzure(texto1, texto2);
+// 🧹 LIMPIAR
+async function limpiar() {
+    const res = await axios.get(`${AZURA_API_URL}/station/${STATION_ID}/files`, {
+        headers: { "X-API-Key": AZURA_API_KEY }
+    });
 
-    console.log("🎚️ Mezclando...");
-    await mezclarAudio();
+    const lista = res.data.filter(f => f.path.startsWith("ia/"));
 
-    console.log("🚀 Enviando...");
-    await enviarAlStream("final_radio.mp3");
-
-    console.log("✅ Emitido:", texto1);
-}
-
-// 🎵 DETECTAR CAMBIO DE CANCIÓN
-async function detectarCambio() {
-    try {
-        const res = await axios.get(`${AZURA_API_URL}/nowplaying/${STATION_ID}`);
-        const actual = res.data.now_playing.song.text;
-
-        if (actual !== ultimaCancion) {
-            console.log("🎵 Nueva:", actual);
-            contador++;
-
-            if (contador % 2 === 0) {
-                const frase = generarFrase(actual);
-
-                await locucion(
-                    frase,
-                    "Y recuerda que estás en La Fronterísima, la emisora que cruza fronteras."
-                );
-            }
-
-            ultimaCancion = actual;
+    if (lista.length > 10) {
+        for (let f of lista.slice(0, lista.length - 10)) {
+            await axios.delete(`${AZURA_API_URL}/station/${STATION_ID}/file/${f.id}`, {
+                headers: { "X-API-Key": AZURA_API_KEY }
+            });
         }
-
-    } catch (err) {
-        console.error("❌ Error:", err.message);
     }
 }
 
-// 🔁 LOOP CANCIÓN
-setInterval(detectarCambio, 20000);
+// 🎙️ EMITIR
+async function emitir(texto1, texto2 = null) {
+    await generarAudio(texto1, texto2);
+    await mezclar();
+    await subir("final.mp3");
+    await limpiar();
+}
+
+// 🎵 CAMBIO DE CANCIÓN
+async function detectar() {
+    const res = await axios.get(`${AZURA_API_URL}/nowplaying/${STATION_ID}`);
+    const actual = res.data.now_playing.song.text;
+
+    if (actual !== ultimaCancion) {
+        contador++;
+
+        if (contador % 2 === 0) {
+            await emitir(
+                generarFrase(actual),
+                "Estás en La Fronterísima, la emisora que cruza fronteras."
+            );
+        }
+
+        ultimaCancion = actual;
+    }
+}
+
+setInterval(detectar, 20000);
 
 // ⏰ LOCUCIÓN DE HORA
 setInterval(async () => {
-    try {
-        await locucion(obtenerHoraActual());
-    } catch (err) {
-        console.error("❌ Hora error:", err.message);
-    }
+    await emitir(obtenerHora());
 }, 15 * 60 * 1000);
 
-// 🌐 SERVER (Render keep-alive)
-const PORT = process.env.PORT || 10000;
-
+// 🌐 SERVER (Render)
 http.createServer((req, res) => {
-    res.writeHead(200);
     res.end("Radio IA activa 🎧");
-}).listen(PORT, "0.0.0.0", () => {
-    console.log("🌐 Server activo en puerto", PORT);
-});
+}).listen(process.env.PORT || 10000);  
