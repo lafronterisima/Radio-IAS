@@ -12,6 +12,7 @@ const AZURA_API_URL = process.env.AZURA_API_URL;
 const AZURA_API_KEY = process.env.AZURA_API_KEY;
 const STATION_ID = process.env.STATION_ID;
 
+
 // 🎧 estado
 let ultimaCancion = "";
 
@@ -107,3 +108,14 @@ async function detectarCambio() {
  * 🔁 LOOP AUTOMÁTICO 24/7
  */
 setInterval(detectarCambio, 20000);
+
+const http = require("http");
+
+const PORT = process.env.PORT || 10000;
+
+http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("Radio IA funcionando 🎧");
+}).listen(PORT, () => {
+    console.log("🌐 Servidor corriendo en puerto", PORT);
+});
