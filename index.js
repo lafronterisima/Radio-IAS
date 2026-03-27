@@ -1,4 +1,5 @@
-    const sdk = require("microsoft-cognitiveservices-speech-sdk");
+ 
+const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const axios = require("axios");
 const fs = require("fs");
 const { exec } = require("child_process");
@@ -15,10 +16,15 @@ const AZURA_API_URL = process.env.AZURA_API_URL;
 const AZURA_API_KEY = process.env.AZURA_API_KEY;
 const STATION_ID = process.env.STATION_ID;
 
-// 🎧 Estado
+// 🌦️ CLIMA
+const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
+const CITY = process.env.CITY || "Bogota";
+
+// 🎧 ESTADO
 let ultimaCancion = "";
 let contador = 0;
 let ultimoMinutoHora = -1;
+let hablando = false;
 
 // 🎲 FRASES DINÁMICAS
 function generarFrase(cancion) {
@@ -31,13 +37,37 @@ function generarFrase(cancion) {
     return frases[Math.floor(Math.random() * frases.length)];
 }
 
-// 🕒 HORA TEXTO
-function obtenerHora() {
-    const now = new Date();
-    return `Son las ${now.getHours()} con ${now.getMinutes()} minutos en La Fronterísima.`;
+// 🌦️ OBTENER CLIMA
+async function obtenerClima() {
+    try {
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&appid=${WEATHER_API_KEY}&units=metric&lang=es`;
+        const res = await axios.get(url);
+        const data = res.data;
+
+        const temp = Math.round(data.main.temp);
+        const desc = data.weather[0].description;
+
+        return `Temperatura ${temp} grados, cielo ${desc}.`;
+
+    } catch (err) {
+        console.error("❌ Error clima:", err.message);
+        return "";
+    }
 }
 
-// 🌍 NOTICIAS
+// 🕒 HORA + CLIMA
+async function obtenerHoraClima() {
+    const now = new Date();
+    const hora = `Son las ${now.getHours()} con ${now.getMinutes()} minutos`;
+    const clima = await obtenerClima();
+
+    return {
+        voz1: "Atención...",
+        voz2: `${hora} en La Fronterísima. ${clima}`
+    };
+}
+
+// 📰 NOTICIAS
 const RSS_URL = "https://www.euronews.com/rss?level=theme&name=news";
 
 function resumir(texto) {
@@ -50,7 +80,7 @@ async function obtenerNoticias() {
     return items.map(n => resumir(n.contentSnippet || n.title));
 }
 
-// 🎙️ VOZ AZURE (DOBLE)
+// 🎙️ VOZ AZURE
 async function generarAudio(texto1, texto2 = null) {
     const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
     const audioConfig = sdk.AudioConfig.fromAudioFileOutput("voz.mp3");
@@ -98,7 +128,7 @@ async function mezclar() {
     });
 }
 
-// 📤 SUBIR A AZURACAST (CARPETA radio_ia)
+// 📤 SUBIR A AZURACAST
 async function subir(filePath) {
     const fileName = `radio_ia_${Date.now()}.mp3`;
     const ruta = `radio_ia/${fileName}`;
@@ -106,27 +136,19 @@ async function subir(filePath) {
     const form = new FormData();
     form.append("file", fs.createReadStream(filePath));
 
-    try {
-        await axios.post(
-            `${AZURA_API_URL}/station/${STATION_ID}/files`,
-            form,
-            {
-                headers: {
-                    ...form.getHeaders(),
-                    "X-API-Key": AZURA_API_KEY
-                },
-                params: { path: ruta },
-                maxContentLength: Infinity,
-                maxBodyLength: Infinity
-            }
-        );
+    await axios.post(
+        `${AZURA_API_URL}/station/${STATION_ID}/files`,
+        form,
+        {
+            headers: {
+                ...form.getHeaders(),
+                "X-API-Key": AZURA_API_KEY
+            },
+            params: { path: ruta }
+        }
+    );
 
-        console.log("📻 Subido:", ruta);
-        return ruta;
-
-    } catch (error) {
-        console.error("❌ Error al subir:", error.response?.data || error.message);
-    }
+    console.log("📻 Subido:", ruta);
 }
 
 // 🧹 LIMPIAR
@@ -142,21 +164,32 @@ async function limpiar() {
             await axios.delete(`${AZURA_API_URL}/station/${STATION_ID}/file/${f.id}`, {
                 headers: { "X-API-Key": AZURA_API_KEY }
             });
-            console.log("🗑️ Eliminado:", f.path);
         }
     }
 }
 
-// 🎙️ EMITIR
+// 🎙️ EMITIR (ANTI-CHOQUES)
 async function emitir(texto1, texto2 = null) {
-    await generarAudio(texto1, texto2);
-    await mezclar();
-    await subir("final.mp3");
-    await limpiar();
+    if (hablando) return;
+
+    hablando = true;
+
+    try {
+        await generarAudio(texto1, texto2);
+        await mezclar();
+        await subir("final.mp3");
+        await limpiar();
+    } catch (err) {
+        console.error("❌ Error emitir:", err.message);
+    }
+
+    hablando = false;
 }
 
 // 🎵 DETECTAR CANCIÓN
 async function detectar() {
+    if (hablando) return;
+
     try {
         const res = await axios.get(`${AZURA_API_URL}/nowplaying/${STATION_ID}`);
         const actual = res.data.now_playing.song.text;
@@ -181,23 +214,24 @@ async function detectar() {
 
 setInterval(detectar, 20000);
 
-// ⏰ HORA EXACTA
+// ⏰ HORA + CLIMA EXACTA
 setInterval(async () => {
     const now = new Date();
     const min = now.getMinutes();
 
-    if (min % 15 === 0 && min !== ultimoMinutoHora) {
+    if (min % 15 === 0 && min !== ultimoMinutoHora && !hablando) {
         ultimoMinutoHora = min;
 
-        await emitir(
-            "Atención...",
-            obtenerHora()
-        );
+        const { voz1, voz2 } = await obtenerHoraClima();
+        await emitir(voz1, voz2);
     }
+
 }, 60000);
 
 // 📰 NOTICIAS
 async function emitirNoticias() {
+    if (hablando) return;
+
     try {
         const noticias = await obtenerNoticias();
 
