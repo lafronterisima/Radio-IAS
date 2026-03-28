@@ -1,3 +1,6 @@
+
+// index.js – IA DJ Web Service listo para Render 🚀
+
 const express = require("express");
 const path = require("path");
 const axios = require("axios");
@@ -10,13 +13,13 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Configuración de OpenWeather
-const OPENWEATHER_KEY = process.env.OPENWEATHER_KEY; // tu API Key de OpenWeather
+const OPENWEATHER_KEY = process.env.OPENWEATHER_KEY; // tu API Key
 const CITY = process.env.CITY || "Bogota";
 
 async function getWeather() {
   try {
     const res = await axios.get(
-      `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=185dbcc57e27f9315a49d3f1c762ebd7`
+      `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&units=metric&appid=${OPENWEATHER_KEY}`
     );
     const temp = Math.round(res.data.main.temp);
     const description = res.data.weather[0].description;
@@ -49,6 +52,8 @@ async function generateAndUploadLocution() {
     const song = await getCurrentSong();
     const text = `Hola, son las ${now.getHours()}:${now.getMinutes()} en ${CITY}. El clima es ${weather}. Ahora suena ${song}.`;
 
+    console.log("Texto a locutar:", text);
+
     // Archivos de audio
     const voiceFile = path.join(__dirname, "voice.mp3");
     const musicFile = path.join(__dirname, "music/currentTrack.mp3");
@@ -67,12 +72,18 @@ async function generateAndUploadLocution() {
   }
 }
 
-// Endpoint manual
+// Endpoint raíz amigable
+app.get("/", (req, res) => {
+  res.send("IA DJ Web Service funcionando ✅ Usa /run-dj para generar locución");
+});
+
+// Endpoint manual para generar locución
 app.get("/run-dj", async (req, res) => {
   try {
     await generateAndUploadLocution();
     res.send("Locución subida correctamente ✅");
-  } catch {
+  } catch (err) {
+    console.error(err);
     res.status(500).send("Error en IA DJ ❌");
   }
 });
@@ -80,6 +91,6 @@ app.get("/run-dj", async (req, res) => {
 // Iniciar web server
 app.listen(PORT, () => console.log(`IA DJ Web Service corriendo en puerto ${PORT}`));
 
-// 🔹 Loop interno para Render gratis (cada 10 minutos)
+// 🔹 Loop interno cada 10 minutos
 generateAndUploadLocution(); // primera ejecución al iniciar
 setInterval(generateAndUploadLocution, 10 * 60 * 1000); // cada 10 min
