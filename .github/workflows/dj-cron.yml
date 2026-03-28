@@ -1,0 +1,17 @@
+
+name: Ejecutar IA DJ
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"  # Cada 10 minutos
+  workflow_dispatch: # Permite ejecutar manualmente
+
+jobs:
+  call-dj-endpoint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar a Web Service IA DJ
+        uses: fjogeleit/http-request-action@v1
+        with:
+          url: https://radio-ia-r206.onrender.com
+          method: GET
