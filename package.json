@@ -1,18 +1,16 @@
 {
   "name": "radio-ia",
   "version": "1.0.0",
-  "description": "Radio IA automática con Express y Azure TTS",
+  "description": "Radio IA automática con Express",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.5.0",
-    "form-data": "^4.0.0",
-    "microsoft-cognitiveservices-speech-sdk": "^1.25.0",
-    "ffmpeg-static": "^5.1.0",
-    "fluent-ffmpeg": "^2.1.2"
+  "express": "^4.18.2",
+  "axios": "^1.5.0",
+  "form-data": "^4.0.0",
+  "microsoft-cognitiveservices-speech-sdk": "^1.25.0"
   },
   "engines": {
     "node": ">=18.0.0"
