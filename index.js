@@ -1,253 +1,85 @@
- 
-const sdk = require("microsoft-cognitiveservices-speech-sdk");
+const express = require("express");
+const path = require("path");
 const axios = require("axios");
-const fs = require("fs");
-const { exec } = require("child_process");
-const FormData = require("form-data");
-const Parser = require("rss-parser");
-const http = require("http");
+const { textToSpeech } = require("./utils/azureTTS");
+const { mixAudio } = require("./utils/audioMixer");
+const { uploadToAzura } = require("./utils/azuraCastAPI");
+const { AZURA_API_URL, AZURA_API_KEY, STATION_ID } = require("./config");
 
-const parser = new Parser();
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-// 🔐 ENV
-const AZURE_KEY = process.env.AZURE_KEY;
-const AZURE_REGION = process.env.AZURE_REGION;
-const AZURA_API_URL = process.env.AZURA_API_URL;
-const AZURA_API_KEY = process.env.AZURA_API_KEY;
-const STATION_ID = process.env.STATION_ID;
-
-// 🌦️ CLIMA
-const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
+// Configuración de OpenWeather
+const OPENWEATHER_KEY = process.env.OPENWEATHER_KEY; // tu API Key de OpenWeather
 const CITY = process.env.CITY || "Bogota";
 
-// 🎧 ESTADO
-let ultimaCancion = "";
-let contador = 0;
-let ultimoMinutoHora = -1;
-let hablando = false;
-
-// 🎲 FRASES DINÁMICAS
-function generarFrase(cancion) {
-    const frases = [
-        `Atención porque esto está sonando ahora mismo... ${cancion}`,
-        `Sube el volumen porque llega... ${cancion}`,
-        `Esto es puro ritmo con... ${cancion}`,
-        `Momento de buena música con... ${cancion}`
-    ];
-    return frases[Math.floor(Math.random() * frases.length)];
-}
-
-// 🌦️ OBTENER CLIMA
-async function obtenerClima() {
-    try {
-        const url = `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&appid=${WEATHER_API_KEY}&units=metric&lang=es`;
-        const res = await axios.get(url);
-        const data = res.data;
-
-        const temp = Math.round(data.main.temp);
-        const desc = data.weather[0].description;
-
-        return `Temperatura ${temp} grados, cielo ${desc}.`;
-
-    } catch (err) {
-        console.error("❌ Error clima:", err.message);
-        return "";
-    }
-}
-
-// 🕒 HORA + CLIMA
-async function obtenerHoraClima() {
-    const now = new Date();
-    const hora = `Son las ${now.getHours()} con ${now.getMinutes()} minutos`;
-    const clima = await obtenerClima();
-
-    return {
-        voz1: "Atención...",
-        voz2: `${hora} en La Fronterísima. ${clima}`
-    };
-}
-
-// 📰 NOTICIAS
-const RSS_URL = "https://www.euronews.com/rss?level=theme&name=news";
-
-function resumir(texto) {
-    return texto.split(".").slice(0, 2).join(".") + ".";
-}
-
-async function obtenerNoticias() {
-    const feed = await parser.parseURL(RSS_URL);
-    const items = feed.items.slice(0, 3);
-    return items.map(n => resumir(n.contentSnippet || n.title));
-}
-
-// 🎙️ VOZ AZURE
-async function generarAudio(texto1, texto2 = null) {
-    const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
-    const audioConfig = sdk.AudioConfig.fromAudioFileOutput("voz.mp3");
-    const synth = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
-
-    let ssml;
-
-    if (texto2) {
-        ssml = `
-        <speak xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="es-ES">
-            <voice name="es-ES-AlvaroNeural">
-                <mstts:express-as style="serious">${texto1}</mstts:express-as>
-            </voice>
-            <break time="400ms"/>
-            <voice name="es-ES-ElviraNeural">
-                <mstts:express-as style="friendly">${texto2}</mstts:express-as>
-            </voice>
-        </speak>`;
-    } else {
-        ssml = `
-        <speak xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="es-ES">
-            <voice name="es-ES-AlvaroNeural">
-                <mstts:express-as style="cheerful">${texto1}</mstts:express-as>
-            </voice>
-        </speak>`;
-    }
-
-    return new Promise((res, rej) => {
-        synth.speakSsmlAsync(ssml, () => {
-            synth.close();
-            res();
-        }, rej);
-    });
-}
-
-// 🎚️ MEZCLA
-async function mezclar() {
-    return new Promise((res, rej) => {
-        const cmd = `
-        ffmpeg -y -i cortina.mp3 -i voz.mp3 \
-        -filter_complex "[0:a]volume=0.25[a0];[1:a]volume=1.4[a1];[a0][a1]sidechaincompress=threshold=0.02:ratio=10[out]" \
-        -map "[out]" -c:a libmp3lame -q:a 2 final.mp3
-        `;
-        exec(cmd, err => err ? rej(err) : res());
-    });
-}
-
-// 📤 SUBIR A AZURACAST
-async function subir(filePath) {
-    const fileName = `radio_ia_${Date.now()}.mp3`;
-    const ruta = `radio_ia/${fileName}`;
-
-    const form = new FormData();
-    form.append("file", fs.createReadStream(filePath));
-
-    await axios.post(
-        `${AZURA_API_URL}/station/${STATION_ID}/files`,
-        form,
-        {
-            headers: {
-                ...form.getHeaders(),
-                "X-API-Key": AZURA_API_KEY
-            },
-            params: { path: ruta }
-        }
+async function getWeather() {
+  try {
+    const res = await axios.get(
+      `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=185dbcc57e27f9315a49d3f1c762ebd7`
     );
-
-    console.log("📻 Subido:", ruta);
+    const temp = Math.round(res.data.main.temp);
+    const description = res.data.weather[0].description;
+    return `${temp} grados con ${description}`;
+  } catch (err) {
+    console.error("Error al obtener clima:", err);
+    return "clima no disponible";
+  }
 }
 
-// 🧹 LIMPIAR
-async function limpiar() {
-    const res = await axios.get(`${AZURA_API_URL}/station/${STATION_ID}/files`, {
-        headers: { "X-API-Key": AZURA_API_KEY }
+async function getCurrentSong() {
+  try {
+    const res = await axios.get(`${AZURA_API_URL}/stations/${STATION_ID}/nowplaying`, {
+      headers: { Authorization: `Bearer ${AZURA_API_KEY}` }
     });
-
-    const lista = res.data.filter(f => f.path.startsWith("radio_ia/"));
-
-    if (lista.length > 15) {
-        for (let f of lista.slice(0, lista.length - 15)) {
-            await axios.delete(`${AZURA_API_URL}/station/${STATION_ID}/file/${f.id}`, {
-                headers: { "X-API-Key": AZURA_API_KEY }
-            });
-        }
-    }
+    const song = res.data?.now_playing?.song?.title || "canción desconocida";
+    const artist = res.data?.now_playing?.song?.artist || "";
+    return artist ? `${song} de ${artist}` : song;
+  } catch (err) {
+    console.error("Error al obtener canción:", err);
+    return "canción desconocida";
+  }
 }
 
-// 🎙️ EMITIR (ANTI-CHOQUES)
-async function emitir(texto1, texto2 = null) {
-    if (hablando) return;
-
-    hablando = true;
-
-    try {
-        await generarAudio(texto1, texto2);
-        await mezclar();
-        await subir("final.mp3");
-        await limpiar();
-    } catch (err) {
-        console.error("❌ Error emitir:", err.message);
-    }
-
-    hablando = false;
-}
-
-// 🎵 DETECTAR CANCIÓN
-async function detectar() {
-    if (hablando) return;
-
-    try {
-        const res = await axios.get(`${AZURA_API_URL}/nowplaying/${STATION_ID}`);
-        const actual = res.data.now_playing.song.text;
-
-        if (actual !== ultimaCancion) {
-            contador++;
-
-            if (contador % 2 === 0) {
-                await emitir(
-                    generarFrase(actual),
-                    "Estás en La Fronterísima, la emisora que cruza fronteras."
-                );
-            }
-
-            ultimaCancion = actual;
-        }
-
-    } catch (err) {
-        console.error("❌ Error canción:", err.message);
-    }
-}
-
-setInterval(detectar, 20000);
-
-// ⏰ HORA + CLIMA EXACTA
-setInterval(async () => {
+// Función principal de locución
+async function generateAndUploadLocution() {
+  try {
     const now = new Date();
-    const min = now.getMinutes();
+    const weather = await getWeather();
+    const song = await getCurrentSong();
+    const text = `Hola, son las ${now.getHours()}:${now.getMinutes()} en ${CITY}. El clima es ${weather}. Ahora suena ${song}.`;
 
-    if (min % 15 === 0 && min !== ultimoMinutoHora && !hablando) {
-        ultimoMinutoHora = min;
+    // Archivos de audio
+    const voiceFile = path.join(__dirname, "voice.mp3");
+    const musicFile = path.join(__dirname, "music/currentTrack.mp3");
+    const outputFile = path.join(__dirname, "final.mp3");
 
-        const { voz1, voz2 } = await obtenerHoraClima();
-        await emitir(voz1, voz2);
-    }
+    // Generar voz y mezclar
+    await textToSpeech(text, voiceFile);
+    await mixAudio(musicFile, voiceFile, outputFile);
 
-}, 60000);
+    // Subir a AzuraCast
+    await uploadToAzura(outputFile);
 
-// 📰 NOTICIAS
-async function emitirNoticias() {
-    if (hablando) return;
-
-    try {
-        const noticias = await obtenerNoticias();
-
-        await emitir(
-            "Atención, boletín informativo...",
-            `${noticias.join(" ")} Hasta aquí las noticias.`
-        );
-
-    } catch (err) {
-        console.error("❌ Error noticias:", err.message);
-    }
+    console.log("Locución subida correctamente ✅");
+  } catch (err) {
+    console.error("Error en IA DJ:", err);
+  }
 }
 
-setInterval(emitirNoticias, 60 * 60 * 1000);
+// Endpoint manual
+app.get("/run-dj", async (req, res) => {
+  try {
+    await generateAndUploadLocution();
+    res.send("Locución subida correctamente ✅");
+  } catch {
+    res.status(500).send("Error en IA DJ ❌");
+  }
+});
 
-// 🌐 SERVER
-http.createServer((req, res) => {
-    res.end("Radio IA activa 🎧");
-}).listen(process.env.PORT || 10000);
+// Iniciar web server
+app.listen(PORT, () => console.log(`IA DJ Web Service corriendo en puerto ${PORT}`));
+
+// 🔹 Loop interno para Render gratis (cada 10 minutos)
+generateAndUploadLocution(); // primera ejecución al iniciar
+setInterval(generateAndUploadLocution, 10 * 60 * 1000); // cada 10 min
