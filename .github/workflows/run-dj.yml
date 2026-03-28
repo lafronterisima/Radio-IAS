@@ -1,0 +1,38 @@
+
+# .github/workflows/run-dj.yml
+name: Ejecutar IA DJ
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"  # Cada 10 minutos
+  workflow_dispatch:          # Permite ejecutar manualmente
+
+jobs:
+  call-dj-endpoint:
+    runs-on: ubuntu-latest
+    steps:
+      # Paso 1: Mostrar inicio
+      - name: Iniciar workflow
+        run: echo "Ejecutando IA DJ..."
+
+      # Paso 2: Llamar al endpoint /run-dj
+      - name: Llamar a Web Service IA DJ
+        uses: fjogeleit/http-request-action@v1
+        with:
+          url: https://radio-ia-r206.onrender.com/run-dj
+          method: GET
+          output: response.txt
+          # headers: "Authorization: Bearer ${{ secrets.DJ_API_KEY }}" # si tuvieras token
+
+      # Paso 3: Mostrar respuesta del endpoint
+      - name: Mostrar respuesta
+        run: |
+          echo "Respuesta del endpoint:"
+          cat response.txt || echo "No se recibió respuesta"
+
+      # Paso 4 (opcional): Notificar fallo vía Discord
+      - name: Notificar fallo
+        if: failure()
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{"content": "⚠️ El run-dj falló en GitHub Actions"}' ${{ secrets.DISCORD_WEBHOOK }}
