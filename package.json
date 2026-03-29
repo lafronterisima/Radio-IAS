@@ -1,9 +1,10 @@
 
 {
-  "name": "radio-ia-dj",
+  "name": "radio-ia",
+  "rss-parser": "^3.12.0",
   "version": "1.0.0",
   "description": "Servicio de IA DJ para generar locuciones automáticas y subirlas a AzuraCast",
-  "main": "index.js",
+  "main": "server.js",
   "scripts": {
     "start": "node index.js"
   },
