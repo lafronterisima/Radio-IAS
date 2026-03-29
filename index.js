@@ -1,6 +1,8 @@
 
 // index.js – IA DJ Web Service listo para Render 🚀
 
+require("dotenv").config(); // Asegúrate de tener un .env con tus claves
+
 const express = require("express");
 const path = require("path");
 const axios = require("axios");
@@ -13,10 +15,16 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Configuración de OpenWeather
-const OPENWEATHER_KEY = process.env.OPENWEATHER_KEY; // tu API Key
+const OPENWEATHER_KEY = process.env.OPENWEATHER_API_KEY;
 const CITY = process.env.CITY || "Bogota";
 
+// Función para obtener el clima
 async function getWeather() {
+  if (!OPENWEATHER_KEY) {
+    console.warn("⚠️ OpenWeather API key no definida");
+    return "clima no disponible";
+  }
+
   try {
     const res = await axios.get(
       `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&units=metric&appid=${OPENWEATHER_KEY}`
@@ -25,21 +33,30 @@ async function getWeather() {
     const description = res.data.weather[0].description;
     return `${temp} grados con ${description}`;
   } catch (err) {
-    console.error("Error al obtener clima:", err);
+    console.error("Error al obtener clima:", err.response?.data || err.message);
     return "clima no disponible";
   }
 }
 
+// Función para obtener la canción actual
 async function getCurrentSong() {
+  if (!AZURA_API_URL || !AZURA_API_KEY || !STATION_ID) {
+    console.warn("⚠️ Datos de AzuraCast no definidos");
+    return "canción desconocida";
+  }
+
   try {
-    const res = await axios.get(`${AZURA_API_URL}/stations/${STATION_ID}/nowplaying`, {
-      headers: { Authorization: `Bearer ${AZURA_API_KEY}` }
-    });
+    const res = await axios.get(
+      `${AZURA_API_URL}/stations/${STATION_ID}/nowplaying`,
+      {
+        headers: { Authorization: `Bearer ${AZURA_API_KEY}` }
+      }
+    );
     const song = res.data?.now_playing?.song?.title || "canción desconocida";
     const artist = res.data?.now_playing?.song?.artist || "";
     return artist ? `${song} de ${artist}` : song;
   } catch (err) {
-    console.error("Error al obtener canción:", err);
+    console.error("Error al obtener canción:", err.response?.data || err.message);
     return "canción desconocida";
   }
 }
@@ -59,16 +76,25 @@ async function generateAndUploadLocution() {
     const musicFile = path.join(__dirname, "music/currentTrack.mp3");
     const outputFile = path.join(__dirname, "final.mp3");
 
+    // Verificar si la clave de Azure TTS está definida
+    if (!process.env.AZURE_KEY || !process.env.AZURE_REGION) {
+      console.warn("⚠️ Azure TTS no configurado. Se omitirá la locución");
+      return;
+    }
+
     // Generar voz y mezclar
     await textToSpeech(text, voiceFile);
     await mixAudio(musicFile, voiceFile, outputFile);
 
-    // Subir a AzuraCast
-    await uploadToAzura(outputFile);
-
-    console.log("Locución subida correctamente ✅");
+    // Subir a AzuraCast si API definida
+    if (AZURA_API_URL && AZURA_API_KEY) {
+      await uploadToAzura(outputFile);
+      console.log("Locución subida correctamente ✅");
+    } else {
+      console.log("Locución generada localmente (AzuraCast no configurado)");
+    }
   } catch (err) {
-    console.error("Error en IA DJ:", err);
+    console.error("Error en IA DJ:", err.message || err);
   }
 }
 
@@ -89,7 +115,9 @@ app.get("/run-dj", async (req, res) => {
 });
 
 // Iniciar web server
-app.listen(PORT, () => console.log(`IA DJ Web Service corriendo en puerto ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`IA DJ Web Service corriendo en puerto ${PORT}`)
+);
 
 // 🔹 Loop interno cada 10 minutos
 generateAndUploadLocution(); // primera ejecución al iniciar
