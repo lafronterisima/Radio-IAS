@@ -1,0 +1,115 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>IA DJ Web Stream</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #111; color: #fff; padding: 20px; }
+    h1 { color: #ff4081; }
+    div { margin: 10px 0; font-size: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>🎵 IA DJ Web Stream</h1>
+  <div id="song">Cargando canción...</div>
+  <div id="weather">Clima cargando...</div>
+  <div id="news">Noticias cargando...</div>
+
+  <!-- Música desde proxy Node.js -->
+  <audio id="music" src="https://az.azurafree.eu/listen/la_fronterisima/radio.mp3" autoplay controls></audio>
+  <!-- Locución TTS -->
+  <audio id="tts" autoplay></audio>
+
+  <script>
+    // --- Variables de entorno Render --- //
+    const AZURA_API_URL = process.env.AZURA_API_URL;
+    const AZURA_API_KEY = process.env.AZURA_API_KEY;
+    const STATION_ID = process.env.STATION_ID;
+    const OWM_KEY = process.env.OWM_KEY;
+    const CITY = process.env.CITY || "Bogota";
+    const EURONEWS_RSS = process.env.EURONEWS_RSS || "https://www.euronews.com/rss?level=theme&name=world";
+
+    const songDiv = document.getElementById('song');
+    const weatherDiv = document.getElementById('weather');
+    const newsDiv = document.getElementById('news');
+    const ttsAudio = document.getElementById('tts');
+
+    // --- Funciones --- //
+
+    async function fetchNowPlaying() {
+      try {
+        const res = await fetch(`${AZURA_API_URL}/nowplaying/${STATION_ID}`, { 
+          headers: { 'Authorization': `Bearer ${AZURA_API_KEY}` } 
+        });
+        const data = await res.json();
+        return data.now_playing?.song?.title || 'Canción desconocida';
+      } catch (err) { console.error(err); return 'Canción desconocida'; }
+    }
+
+    async function fetchWeather() {
+      try {
+        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${CITY}&units=metric&appid=${OWM_KEY}`);
+        const data = await res.json();
+        return `${data.main.temp}°C, ${data.weather[0].description}`;
+      } catch { return "Clima no disponible"; }
+    }
+
+    async function fetchNews() {
+      try {
+        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(EURONEWS_RSS)}`);
+        const text = await res.text();
+        const parser = new DOMParser();
+        const xml = parser.parseFromString(text, "application/xml");
+        const items = xml.querySelectorAll("item");
+        return Array.from(items).slice(0,3).map(i=>i.querySelector("title").textContent).join("; ");
+      } catch { return "No hay noticias disponibles"; }
+    }
+
+    function getHoraColombia() {
+      return new Date().toLocaleTimeString('es-CO', {
+        timeZone: 'America/Bogota',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    // --- Función TTS vía Proxy Node.js --- //
+    async function speakTTS(text) {
+      try {
+        const res = await fetch('/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ texto: text })
+        });
+        if (!res.ok) throw new Error("Error TTS desde proxy");
+        const blob = await res.blob();
+        ttsAudio.src = URL.createObjectURL(blob);
+        ttsAudio.play();
+      } catch(err) {
+        console.error("Error TTS", err);
+      }
+    }
+
+    async function updateDJ() {
+      const [song, weather, news] = await Promise.all([
+        fetchNowPlaying(), fetchWeather(), fetchNews()
+      ]);
+
+      songDiv.textContent = `Ahora suena: ${song}`;
+      weatherDiv.textContent = `Clima: ${weather}`;
+      newsDiv.textContent = `Noticias: ${news}`;
+
+      const now = new Date();
+      if (now.getMinutes() % 15 === 0) { // cada 15 minutos
+        const ttsText = `Hola, son las ${getHoraColombia()} en ${CITY}. El clima es ${weather}. Ahora suena ${song}. Noticias destacadas: ${news}`;
+        await speakTTS(ttsText);
+      }
+    }
+
+    // Llamada inicial y actualización cada minuto
+    updateDJ();
+    setInterval(updateDJ, 60000); 
+  </script>
+</body>
+</html>
