@@ -1,24 +1,32 @@
-// index.js – IA DJ Web Service listo para Render 🚀
 
-require("dotenv").config(); // .env con tus claves
+// index.js – IA DJ Web Service completo 🚀
 
+require("dotenv").config();
 const express = require("express");
 const path = require("path");
 const axios = require("axios");
 const { textToSpeech } = require("./utils/azureTTS");
 const { mixAudio } = require("./utils/audioMixer");
 const { uploadToAzura } = require("./utils/azuraCastAPI");
-const { getNews } = require("./utils/news"); // noticias RSS
+const { getNews } = require("./utils/news");
 const { AZURA_API_URL, AZURA_API_KEY, STATION_ID } = require("./config");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Configuración de OpenWeather
-const OPENWEATHER_KEY = process.env.OPENWEATHER_API_KEY;
+const PORT = process.env.PORT || 10000;
 const CITY = process.env.CITY || "Bogota";
+const OPENWEATHER_KEY = process.env.OPENWEATHER_API_KEY;
 
-// Función para obtener el clima
+// Función para obtener hora actual en Colombia
+function getColombiaTime() {
+  return new Intl.DateTimeFormat("es-CO", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "America/Bogota",
+  }).format(new Date());
+}
+
+// Función para obtener clima
 async function getWeather() {
   if (!OPENWEATHER_KEY) return "clima no disponible";
 
@@ -35,15 +43,14 @@ async function getWeather() {
   }
 }
 
-// Función para obtener la canción actual de AzuraCast
+// Función para obtener canción actual desde AzuraCast
 async function getCurrentSong() {
   if (!AZURA_API_URL || !AZURA_API_KEY || !STATION_ID) return "canción desconocida";
 
   try {
-    const res = await axios.get(
-      `${AZURA_API_URL}/stations/${STATION_ID}/nowplaying`,
-      { headers: { Authorization: `Bearer ${AZURA_API_KEY}` } }
-    );
+    const res = await axios.get(`${AZURA_API_URL}/stations/${STATION_ID}/nowplaying`, {
+      headers: { Authorization: `Bearer ${AZURA_API_KEY}` },
+    });
     const song = res.data?.now_playing?.song?.title || "canción desconocida";
     const artist = res.data?.now_playing?.song?.artist || "";
     return artist ? `${song} de ${artist}` : song;
@@ -53,27 +60,19 @@ async function getCurrentSong() {
   }
 }
 
-// Función principal de locución
+// Función principal para generar locución
 async function generateAndUploadLocution() {
   try {
-    const now = new Date();
-
-    // Hora exacta de Colombia
-    const colombiaTime = new Intl.DateTimeFormat("es-CO", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-      timeZone: "America/Bogota"
-    }).format(now);
-
+    const colombiaTime = getColombiaTime();
     const weather = await getWeather();
     const song = await getCurrentSong();
-    const news = await getNews();
+    const news = await getNews(3, 20); // 3 titulares, máximo 12 palabras cada uno
 
     const text = `Hola, son las ${colombiaTime} en ${CITY}. El clima es ${weather}. Ahora suena ${song}. Noticias destacadas: ${news}.`;
 
     console.log("🗣 Texto a locutar:", text);
 
+    // Archivos de audio
     const voiceFile = path.join(__dirname, "voice.mp3");
     const musicFile = path.join(__dirname, "music/currentTrack.mp3");
     const outputFile = path.join(__dirname, "final.mp3");
@@ -83,17 +82,19 @@ async function generateAndUploadLocution() {
       return;
     }
 
+    // Generar voz y mezclar con música
     await textToSpeech(text, voiceFile);
     await mixAudio(musicFile, voiceFile, outputFile);
 
+    // Subir a AzuraCast si está configurado
     if (AZURA_API_URL && AZURA_API_KEY) {
       await uploadToAzura(outputFile);
-      console.log("✅ Locución subida correctamente");
+      console.log("✅ Locución subida correctamente a AzuraCast");
     } else {
       console.log("✅ Locución generada localmente (AzuraCast no configurado)");
     }
   } catch (err) {
-    console.error("❌ Error en IA DJ:", err.message || err);
+    console.error("⚠️ Error en IA DJ:", err.message || err);
   }
 }
 
@@ -116,6 +117,6 @@ app.get("/run-dj", async (req, res) => {
 // Iniciar servidor
 app.listen(PORT, () => console.log(`🚀 IA DJ Web Service corriendo en puerto ${PORT}`));
 
-// Loop interno cada 10 minutos
+// Loop automático cada 10 minutos
 generateAndUploadLocution(); // primera ejecución
 setInterval(generateAndUploadLocution, 10 * 60 * 1000); // cada 10 min
