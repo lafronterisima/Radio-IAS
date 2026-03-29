@@ -1,23 +1,31 @@
- 
-// 馃敟 EXPRESS SERVER (REEMPLAZA http.createServer)
+// 🚀 EXPRESS + AZURE VOZ REAL
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
+const sdk = require("microsoft-cognitiveservices-speech-sdk");
+
 const app = express();
 
-// 馃寪 HOME
+// 🔐 ENV
+const AZURE_KEY = process.env.AZURE_KEY;
+const AZURE_REGION = process.env.AZURE_REGION;
+
+// 🌐 HOME
 app.get("/", (req, res) => {
-    res.send("Radio IA activa 馃帶");
+    res.send("Radio IA activa 🎧");
 });
 
-// 馃帣锔� VOZ REAL AZURE PARA WEB
+// 🎙️ VOZ REAL (MEJORADO)
 app.get("/voz", async (req, res) => {
     try {
-        const texto = req.query.texto || "Hola, est谩s escuchando La Fronter铆sima";
+        const texto = req.query.texto || "Hola, estás escuchando La Fronterísima";
 
         const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
         speechConfig.speechSynthesisVoiceName = "es-ES-ElviraNeural";
 
-        const filePath = path.join(__dirname, "voz_web.mp3");
+        // 🔥 archivo único (evita conflictos si hay varias peticiones)
+        const fileName = `voz_${Date.now()}.mp3`;
+        const filePath = path.join(__dirname, fileName);
 
         const audioConfig = sdk.AudioConfig.fromAudioFileOutput(filePath);
         const synth = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
@@ -26,22 +34,28 @@ app.get("/voz", async (req, res) => {
             texto,
             () => {
                 synth.close();
-                res.sendFile(filePath);
+
+                // 🎧 enviar audio
+                res.setHeader("Content-Type", "audio/mpeg");
+                res.sendFile(filePath, () => {
+                    // 🧹 borrar archivo después de enviarlo
+                    fs.unlink(filePath, () => {});
+                });
             },
             (err) => {
-                console.error("鉂� Error Azure:", err);
+                console.error("❌ Error Azure:", err);
                 res.status(500).send("Error generando voz");
             }
         );
 
     } catch (err) {
-        console.error("鉂� Error general:", err.message);
+        console.error("❌ Error general:", err.message);
         res.status(500).send("Error servidor");
     }
 });
 
-// 馃殌 START SERVER
+// 🚀 START SERVER
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-    console.log("馃寪 Servidor activo en puerto", PORT);
+    console.log("🌐 Servidor activo en puerto", PORT);
 });
