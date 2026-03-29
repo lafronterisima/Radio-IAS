@@ -1,4 +1,3 @@
-
 // index.js – IA DJ Web Service completo 🚀
 
 require("dotenv").config();
@@ -12,21 +11,15 @@ const { getNews } = require("./utils/news");
 const { AZURA_API_URL, AZURA_API_KEY, STATION_ID } = require("./config");
 
 const app = express();
-const PORT = process.env.PORT || 10000;
-const CITY = process.env.CITY || "Bogota";
+const PORT = process.env.PORT || 3000;
+
+// Configuración
 const OPENWEATHER_KEY = process.env.OPENWEATHER_API_KEY;
+const CITY = process.env.CITY || "Bogota";
+const AZURE_KEY = process.env.AZURE_KEY;
+const AZURE_REGION = process.env.AZURE_REGION;
 
-// Función para obtener hora actual en Colombia
-function getColombiaTime() {
-  return new Intl.DateTimeFormat("es-CO", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "America/Bogota",
-  }).format(new Date());
-}
-
-// Función para obtener clima
+// ===== Función para obtener clima =====
 async function getWeather() {
   if (!OPENWEATHER_KEY) return "clima no disponible";
 
@@ -43,13 +36,13 @@ async function getWeather() {
   }
 }
 
-// Función para obtener canción actual desde AzuraCast
+// ===== Función para obtener canción actual =====
 async function getCurrentSong() {
   if (!AZURA_API_URL || !AZURA_API_KEY || !STATION_ID) return "canción desconocida";
 
   try {
     const res = await axios.get(`${AZURA_API_URL}/stations/${STATION_ID}/nowplaying`, {
-      headers: { Authorization: `Bearer ${AZURA_API_KEY}` },
+      headers: { Authorization: `Bearer ${AZURA_API_KEY}` }
     });
     const song = res.data?.now_playing?.song?.title || "canción desconocida";
     const artist = res.data?.now_playing?.song?.artist || "";
@@ -60,15 +53,15 @@ async function getCurrentSong() {
   }
 }
 
-// Función principal para generar locución
+// ===== Función principal de locución =====
 async function generateAndUploadLocution() {
   try {
-    const colombiaTime = getColombiaTime();
+    const now = new Date();
     const weather = await getWeather();
     const song = await getCurrentSong();
-    const news = await getNews(3, 20); // 3 titulares, máximo 12 palabras cada uno
+    const news = await getNews(); // obtiene titulares resumidos
 
-    const text = `Hola, son las ${colombiaTime} en ${CITY}. El clima es ${weather}. Ahora suena ${song}. Noticias destacadas: ${news}.`;
+    const text = `Hola, son las ${now.getHours()}:${now.getMinutes()} en ${CITY}. El clima es ${weather}. Ahora suena ${song}. Noticias destacadas: ${news}`;
 
     console.log("🗣 Texto a locutar:", text);
 
@@ -77,12 +70,12 @@ async function generateAndUploadLocution() {
     const musicFile = path.join(__dirname, "music/currentTrack.mp3");
     const outputFile = path.join(__dirname, "final.mp3");
 
-    if (!process.env.AZURE_KEY || !process.env.AZURE_REGION) {
-      console.warn("⚠️ Azure TTS no configurado. Se omitirá la locución");
+    if (!AZURE_KEY || !AZURE_REGION) {
+      console.warn("⚠️ Azure TTS no configurado. Se omite locución");
       return;
     }
 
-    // Generar voz y mezclar con música
+    // Generar locución y mezclar con música
     await textToSpeech(text, voiceFile);
     await mixAudio(musicFile, voiceFile, outputFile);
 
@@ -98,25 +91,24 @@ async function generateAndUploadLocution() {
   }
 }
 
-// Endpoint raíz
+// ===== Endpoints =====
 app.get("/", (req, res) => {
-  res.send("IA DJ Web Service funcionando ✅ Usa /run-dj para generar locución");
+  res.send("🚀 IA DJ Web Service funcionando. Usa /run-dj para generar locución");
 });
 
-// Endpoint manual para generar locución
 app.get("/run-dj", async (req, res) => {
   try {
     await generateAndUploadLocution();
-    res.send("✅ Locución generada y subida correctamente");
+    res.send("✅ Locución procesada correctamente");
   } catch (err) {
     console.error(err);
     res.status(500).send("❌ Error en IA DJ");
   }
 });
 
-// Iniciar servidor
+// ===== Iniciar servidor =====
 app.listen(PORT, () => console.log(`🚀 IA DJ Web Service corriendo en puerto ${PORT}`));
 
-// Loop automático cada 10 minutos
-generateAndUploadLocution(); // primera ejecución
+// ===== Loop automático cada 10 minutos =====
+generateAndUploadLocution(); // primera ejecución al iniciar
 setInterval(generateAndUploadLocution, 10 * 60 * 1000); // cada 10 min
