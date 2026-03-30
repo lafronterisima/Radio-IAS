@@ -1,19 +1,19 @@
- 
 // =======================
-// 馃殌 IMPORTS
+// IMPORTS
 // =======================
+require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
+const ffmpegPath = require("ffmpeg-static"); // FFmpeg estático para Render
 
 const app = express();
 
-
 // =======================
-// 馃寪 CORS
+// CORS
 // =======================
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -21,24 +21,29 @@ app.use((req, res, next) => {
   next();
 });
 
+// =======================
+// CONFIG AZURACAST Y AZURE
+// =======================
+const AZURA_API = process.env.AZURA_API;
+const AZURA_KEY = process.env.AZURA_KEY;
+const AZURE_KEY = process.env.AZURE_KEY;
+const AZURE_REGION = process.env.AZURE_REGION;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 
 // =======================
-// 馃幍 CANCI脫N ACTUAL
+// CANCIÓN ACTUAL
 // =======================
 app.get("/song", async (req, res) => {
   try {
-    const response = await axios.get(
-      "https://az.azurafree.eu/api/nowplaying/la_fronterisima"
-    );
+    const response = await axios.get(`${AZURA_API.replace("/files", "")}/nowplaying/la_fronterisima`);
     res.json(response.data);
   } catch (error) {
-    res.status(500).json({ error: "Error obteniendo canci贸n" });
+    res.status(500).json({ error: "Error obteniendo canción" });
   }
 });
 
-
 // =======================
-// 馃尋 CLIMA
+// CLIMA
 // =======================
 app.get("/weather", async (req, res) => {
   try {
@@ -51,70 +56,48 @@ app.get("/weather", async (req, res) => {
   }
 });
 
-
 // =======================
-// 馃摪 NOTICIAS
+// NOTICIAS
 // =======================
 app.get("/news", async (req, res) => {
   try {
-    const response = await axios.get(
-      "https://feeds.bbci.co.uk/mundo/rss.xml"
-    );
+    const response = await axios.get("https://feeds.bbci.co.uk/mundo/rss.xml");
     res.send(response.data);
   } catch (error) {
     res.status(500).send("Error noticias");
   }
 });
 
-
 // =======================
-// 馃攰 VOZ IA (AZURE)
+// VOZ IA (AZURE)
 // =======================
 app.get("/voz", async (req, res) => {
-
   const texto = req.query.texto;
-
-  if (!texto) {
-    return res.status(400).send("Texto requerido");
-  }
+  if (!texto) return res.status(400).send("Texto requerido");
 
   try {
-    const speechConfig = sdk.SpeechConfig.fromSubscription(
-      process.env.AZURE_KEY,
-      process.env.AZURE_REGION
-    );
-
+    const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
 
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
-
     synthesizer.speakTextAsync(
       texto,
       result => {
         res.setHeader("Content-Type", "audio/mpeg");
         res.send(Buffer.from(result.audioData));
       },
-      err => {
-        res.status(500).send("Error voz");
-      }
+      err => res.status(500).send("Error voz")
     );
-
   } catch (error) {
     res.status(500).send("Error servidor voz");
   }
 });
 
-
 // =======================
-// 馃 DJ AUTOM脕TICO
+// DJ AUTOMÁTICO
 // =======================
 
-// 馃攼 CONFIGURA ESTO
-const AZURA_API = "https://az.azurafree.eu/api/station/1/files";
-const AZURA_KEY = "dd608c7b0c3e41ad:091b0407a742cefb20e5095a57b7e8d8"; 
-
-
-// 馃晵 HORA
+// Obtener hora
 function getHora() {
   return new Date().toLocaleTimeString("es-CO", {
     timeZone: "America/Bogota",
@@ -123,12 +106,11 @@ function getHora() {
   });
 }
 
-
-// 馃 CREAR GUION
+// Crear guion
 async function crearGuion() {
   try {
     const [songRes, weatherRes, newsRes] = await Promise.all([
-      axios.get("https://az.azurafree.eu/api/nowplaying/la_fronterisima"),
+      axios.get(`${AZURA_API.replace("/files", "")}/nowplaying/la_fronterisima`),
       axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true"),
       axios.get("https://feeds.bbci.co.uk/mundo/rss.xml")
     ]);
@@ -143,49 +125,43 @@ async function crearGuion() {
 
     return `Hola, son las ${getHora()} en Colombia.
 El clima en Cali es ${clima}.
-Est谩s escuchando ${song.artist} - ${song.title}.
+Estás escuchando ${song.artist} - ${song.title}.
 Noticias: ${noticias}`;
-
   } catch {
-    return "Est谩s escuchando La Fronter铆sima Radio";
+    return "Estás escuchando La Fronterísima Radio";
   }
 }
 
-
-// 馃攰 GENERAR VOZ (USA TU MISMO BACKEND)
+// Generar voz usando BASE_URL (local o Render)
 async function generarVoz(texto) {
-  const response = await axios.get(
-    "http://localhost:" + PORT + "/voz?texto=" + encodeURIComponent(texto),
-    { responseType: "arraybuffer" }
-  );
-
-  fs.writeFileSync("voz.mp3", response.data);
+  try {
+    const response = await axios.get(`${BASE_URL}/voz?texto=${encodeURIComponent(texto)}`, {
+      responseType: "arraybuffer"
+    });
+    fs.writeFileSync("voz.mp3", response.data);
+    console.log("Voz generada: voz.mp3");
+  } catch (err) {
+    console.error("Error generando voz:", err.message);
+  }
 }
 
-
-// 馃帥锔� MEZCLAR AUDIO (DUCKING)
+// Mezclar audio (ducking)
 function mezclarAudio() {
   return new Promise((resolve, reject) => {
-
-    exec(`
-      ffmpeg -y \
-      -i musica.mp3 \
-      -i voz.mp3 \
-      -filter_complex "[0:a][1:a]sidechaincompress=threshold=0.03:ratio=10[out]" \
-      -map "[out]" \
-      -c:a libmp3lame salida.mp3
-    `, (err) => {
+    exec(`"${ffmpegPath}" -y \
+-i musica.mp3 \
+-i voz.mp3 \
+-filter_complex "[0:a][1:a]sidechaincompress=threshold=0.03:ratio=10[out]" \
+-map "[out]" \
+-c:a libmp3lame salida.mp3`, (err) => {
       if (err) reject(err);
       else resolve();
     });
-
   });
 }
 
-
-// 馃摗 SUBIR A AZURACAST
+// Subir a AzuraCast
 async function subirAzura() {
-
   const file = fs.readFileSync("salida.mp3");
 
   const form = new FormData();
@@ -193,47 +169,35 @@ async function subirAzura() {
   form.append("file", file, "dj_auto.mp3");
 
   await axios.post(AZURA_API, form, {
-    headers: {
-      ...form.getHeaders(),
-      "X-API-Key": AZURA_KEY
-    }
+    headers: { ...form.getHeaders(), "X-API-Key": AZURA_KEY }
   });
 
-  console.log("馃帶 Audio subido a AzuraCast");
+  console.log("✅ Audio subido a AzuraCast");
 }
 
-
-// 馃攣 EJECUTAR DJ
+// Ejecutar DJ automático
 async function DJAutomatico() {
   try {
-    console.log("馃帣 Generando locuci贸n...");
-
+    console.log("🎙 Generando locución...");
     const texto = await crearGuion();
-
     await generarVoz(texto);
     await mezclarAudio();
     await subirAzura();
-
-    console.log("鉁� DJ emitido correctamente");
-
+    console.log("✅ DJ emitido correctamente");
   } catch (err) {
-    console.error("鉂� Error DJ:", err);
+    console.error("❌ Error DJ:", err);
   }
 }
 
-
-// 鈴� CADA 15 MINUTOS
+// Cada 15 minutos
 setInterval(DJAutomatico, 15 * 60 * 1000);
-
-// 鈻讹笍 EJECUTAR AL INICIAR
+// Ejecutar al iniciar
 DJAutomatico();
 
-
 // =======================
-// 馃殌 SERVIDOR
+// SERVIDOR
 // =======================
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log("馃殌 Backend IA Radio activo en puerto " + PORT);
+  console.log(`🚀 Backend IA Radio activo en ${BASE_URL}`);
 });
