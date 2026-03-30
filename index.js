@@ -110,8 +110,8 @@ app.get("/voz", async (req, res) => {
 // =======================
 
 // 馃攼 CONFIGURA ESTO
-const AZURA_API = "https://az.azurafree.eu/api/station/24/files";
-const AZURA_KEY = "dd608c7b0c3e41ad:091b0407a742cefb20e5095a57b7e8d8"; // 馃憟 PON TU API KEY
+const AZURA_API = "https://az.azurafree.eu/api/station/1/files";
+const AZURA_KEY = "dd608c7b0c3e41ad:091b0407a742cefb20e5095a57b7e8d8"; 
 
 
 // 馃晵 HORA
