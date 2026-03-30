@@ -8,7 +8,6 @@ const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
-const ffmpegPath = require("ffmpeg-static"); // FFmpeg estático para Render
 
 const app = express();
 
@@ -132,7 +131,7 @@ Noticias: ${noticias}`;
   }
 }
 
-// Generar voz usando BASE_URL (local o Render)
+// Generar voz usando BASE_URL (Render o local)
 async function generarVoz(texto) {
   try {
     const response = await axios.get(`${BASE_URL}/voz?texto=${encodeURIComponent(texto)}`, {
@@ -148,7 +147,7 @@ async function generarVoz(texto) {
 // Mezclar audio (ducking)
 function mezclarAudio() {
   return new Promise((resolve, reject) => {
-    exec(`"${ffmpegPath}" -y \
+    exec(`ffmpeg -y \
 -i musica.mp3 \
 -i voz.mp3 \
 -filter_complex "[0:a][1:a]sidechaincompress=threshold=0.03:ratio=10[out]" \
@@ -191,7 +190,6 @@ async function DJAutomatico() {
 
 // Cada 15 minutos
 setInterval(DJAutomatico, 15 * 60 * 1000);
-// Ejecutar al iniciar
 DJAutomatico();
 
 // =======================
