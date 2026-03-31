@@ -1,175 +1,141 @@
 const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
-const fs = require("fs");
-const FormData = require("form-data");
-const { exec } = require("child_process");
-const ffmpegPath = require("ffmpeg-static");
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// ================= CONFIG =================
-const AZURA_API = process.env.AZURA_API;
-const AZURA_KEY = process.env.AZURA_KEY;
+// 🔥 VARIABLES (CONFIGURA ESTO)
+const AZURE_KEY = process.env.AZURE_KEY;
+const AZURE_REGION = process.env.AZURE_REGION;
 
-// ================= CORS =================
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "*");
-  next();
-});
+const WEATHER_KEY = process.env.WEATHER_KEY;
+const NEWS_KEY = process.env.NEWS_KEY;
 
-// ================= HORA =================
-function getHora() {
-  return new Date().toLocaleTimeString("es-CO", {
-    timeZone: "America/Bogota",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+// 🌍 CIUDAD
+const CITY = "Bogota,CO";
 
-// ================= GUION =================
-async function crearGuion() {
-  try {
-    const [songRes, weatherRes, newsRes] = await Promise.all([
-      axios.get("https://az.azurafree.eu/api/nowplaying/la_fronterisima"),
-      axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true"),
-      axios.get("https://feeds.bbci.co.uk/mundo/rss.xml")
-    ]);
+// 🔊 CONFIG VOZ AZURE
+const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
+speechConfig.speechSynthesisVoiceName = "es-CO-GonzaloNeural";
 
-    const song = songRes.data.now_playing.song;
-    const clima = weatherRes.data.current_weather.temperature + " grados";
+// 🟢 LOG INICIO
+console.log("🚀 Servidor iniciado");
 
-    const noticias = [...newsRes.data.matchAll(/<title>(.*?)<\/title>/g)]
-      .slice(1, 4)
-      .map(m => m[1])
-      .join(". ");
-
-    return `Hola, son las ${getHora()} en Colombia. 
-El clima es ${clima}. 
-Estás escuchando ${song.artist} - ${song.title}. 
-Noticias: ${noticias}`;
-  } catch (err) {
-    console.error("Error guion:", err);
-    return "Estás escuchando La Fronterísima Radio";
-  }
-}
-
-// ================= VOZ =================
+// 🧠 FUNCIÓN VOZ
 async function generarVoz(texto) {
-  return new Promise((resolve, reject) => {
-    const speechConfig = sdk.SpeechConfig.fromSubscription(
-      process.env.AZURE_KEY,
-      process.env.AZURE_REGION
-    );
+    return new Promise((resolve, reject) => {
+        console.log("🎤 Generando voz...");
 
-    speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
+        const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
 
-    const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
-
-    synthesizer.speakTextAsync(
-      texto,
-      result => {
-        fs.writeFileSync("voz.mp3", Buffer.from(result.audioData));
-        resolve();
-      },
-      err => reject(err)
-    );
-  });
-}
-
-// ================= MEZCLA =================
-function mezclarAudio() {
-  return new Promise((resolve, reject) => {
-    exec(`"${ffmpegPath}" -y \
--i musica.mp3 \
--i voz.mp3 \
--filter_complex "[0:a][1:a]sidechaincompress=threshold=0.03:ratio=10[out]" \
--map "[out]" \
--c:a libmp3lame salida.mp3`, (err) => {
-      if (err) reject(err);
-      else resolve();
+        synthesizer.speakTextAsync(
+            texto,
+            result => {
+                console.log("✅ Voz generada");
+                resolve(result.audioData);
+                synthesizer.close();
+            },
+            err => {
+                console.error("❌ Error Azure:", err);
+                synthesizer.close();
+                reject(err);
+            }
+        );
     });
-  });
 }
 
-// ================= SUBIR AZURA =================
-async function subirAzura() {
-  const file = fs.readFileSync("salida.mp3");
+// 🌦 CLIMA
+async function getWeather() {
+    try {
+        console.log("🌦 Obteniendo clima...");
 
-  const form = new FormData();
-  form.append("path", "dj/dj_auto.mp3");
-  form.append("file", file, "dj_auto.mp3");
+        const url = `https://api.openweathermap.org/data/2.5/weather?q=${CITY}&appid=${WEATHER_KEY}&units=metric&lang=es`;
 
-  await axios.post(AZURA_API, form, {
-    headers: {
-      ...form.getHeaders(),
-      "X-API-Key": AZURA_KEY
+        const res = await axios.get(url);
+
+        return `La temperatura actual es de ${Math.round(res.data.main.temp)} grados con ${res.data.weather[0].description}`;
+    } catch (err) {
+        console.error("❌ Error clima:", err.message);
+        return "No se pudo obtener el clima";
     }
-  });
-
-  console.log("🎧 Subido a AzuraCast");
 }
-
-// ================= DJ =================
-async function DJ() {
-  try {
-    console.log("🎙 Generando locución...");
-
-    const texto = await crearGuion();
-    await generarVoz(texto);
-    await mezclarAudio();
-    await subirAzura();
-
-    console.log("✅ DJ emitido");
-  } catch (err) {
-    console.error("❌ Error DJ:", err);
-  }
-}
-
-// Ejecutar cada 15 minutos
-DJ();
-setInterval(DJ, 15 * 60 * 1000);
-
-// ================= RUTAS FRONTEND =================
-
-// 🎵 CANCIÓN
-app.get("/song", async (req, res) => {
-  try {
-    const r = await axios.get("https://az.azurafree.eu/api/nowplaying/la_fronterisima");
-    res.json(r.data);
-  } catch {
-    res.status(500).json({ error: "Error canción" });
-  }
-});
-
-// 🌤 CLIMA
-app.get("/weather", async (req, res) => {
-  try {
-    const r = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
-    res.json(r.data);
-  } catch {
-    res.status(500).json({ error: "Error clima" });
-  }
-});
 
 // 📰 NOTICIAS
-app.get("/news", async (req, res) => {
-  try {
-    const r = await axios.get("https://feeds.bbci.co.uk/mundo/rss.xml");
-    res.send(r.data);
-  } catch {
-    res.status(500).send("Error noticias");
-  }
+async function getNews() {
+    try {
+        console.log("📰 Obteniendo noticias...");
+
+        const url = `https://newsapi.org/v2/top-headlines?country=co&apiKey=${NEWS_KEY}`;
+
+        const res = await axios.get(url);
+
+        const headlines = res.data.articles.slice(0, 3).map(n => n.title);
+
+        return "Noticias: " + headlines.join(". ");
+    } catch (err) {
+        console.error("❌ Error noticias:", err.message);
+        return "No hay noticias disponibles";
+    }
+}
+
+// 🕐 HORA
+function getTime() {
+    const now = new Date();
+
+    return `Son las ${now.getHours()} y ${now.getMinutes()}`;
+}
+
+// 🎙 GENERAR AUDIO COMPLETO
+app.get("/voz", async (req, res) => {
+    try {
+        console.log("📡 Generando boletín completo...");
+
+        const hora = getTime();
+        const clima = await getWeather();
+        const noticias = await getNews();
+
+        const texto = `${hora}. ${clima}. ${noticias}`;
+
+        console.log("🧾 Texto:", texto);
+
+        const audio = await generarVoz(texto);
+
+        res.set({
+            "Content-Type": "audio/wav"
+        });
+
+        res.send(Buffer.from(audio));
+    } catch (err) {
+        console.error("❌ ERROR GENERAL:", err);
+        res.status(500).send("Error generando audio");
+    }
 });
 
-// ================= HOME =================
+// 🔍 ENDPOINT TEST
+app.get("/status", (req, res) => {
+    console.log("🔎 Status check");
+
+    res.json({
+        status: "ok",
+        uptime: process.uptime(),
+        time: new Date()
+    });
+});
+
+// 🏠 HOME
 app.get("/", (req, res) => {
-  res.send("🎧 Radio IA Koyeb funcionando");
+    res.send("🎧 Radio IA funcionando");
 });
 
-// ================= SERVER =================
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("🚀 Servidor corriendo en puerto " + PORT);
+// 🔴 ERROR GLOBAL
+process.on("uncaughtException", (err) => {
+    console.error("💥 ERROR GLOBAL:", err);
 });
+
+// 🚀 START
+app.listen(PORT, () => {
+    console.log(`🔥 Servidor corriendo en puerto ${PORT}`);
+});
+    
+    
