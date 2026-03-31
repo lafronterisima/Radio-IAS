@@ -1,8 +1,8 @@
+
 const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
-const { spawn } = require("child_process");
-const fs = require("fs");
+const { spawn, spawnSync } = require("child_process");
 const ffmpegPath = require("ffmpeg-static");
 
 const app = express();
@@ -16,9 +16,8 @@ const ICECAST_PORT = process.env.ICECAST_PORT;
 const ICECAST_PASSWORD = process.env.ICECAST_PASSWORD;
 const ICECAST_MOUNT = process.env.ICECAST_MOUNT;
 
-// Intervalos en minutos
-const LOCUCION_INTERVAL = 15;
-const JINGLE_INTERVAL = 30;
+const LOCUCION_INTERVAL = 15; // min
+const JINGLE_INTERVAL = 30;   // min
 
 // ================= UTIL =================
 function getHora() {
@@ -58,6 +57,7 @@ async function generarVozBuffer(texto) {
   return new Promise((resolve, reject) => {
     const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
+
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
 
     synthesizer.speakTextAsync(
@@ -72,21 +72,28 @@ async function generarVozBuffer(texto) {
   });
 }
 
-// ================= SILENCIO INICIAL =================
-const SILENCIO_MP3 = fs.readFileSync("silencio.mp3"); 
-// Genera este archivo con: ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 3 silencio.mp3
+// ================= SILENCIO DINÁMICO =================
+function generarSilencioBuffer(segundos = 3) {
+  const silence = spawnSync(ffmpegPath, [
+    "-f", "lavfi",
+    "-i", "anullsrc=r=44100:cl=stereo",
+    "-t", `${segundos}`,
+    "-f", "mp3",
+    "pipe:1"
+  ]).stdout;
+  return silence;
+}
 
 // ================= RADIO PROFESIONAL =================
 function iniciarRadio() {
   const icecastUrl = `icecast://source:${ICECAST_PASSWORD}@${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`;
-
   console.log("📡 Iniciando radio profesional 24/7...");
 
   const ffmpegArgs = [
     "-re",
-    "-i", "https://az.azurafree.eu/listen/la_fronterisima/radio.mp3", // música continua
+    "-i", "https://az.azurafree.eu/listen/la_fronterisima/radio.mp3",
     "-f", "mp3",
-    "-i", "pipe:0", // stdin para locuciones/jingles
+    "-i", "pipe:0",
     "-filter_complex", "[1:a]volume=3[a1];[0:a][a1]sidechaincompress=threshold=0.02:ratio=12[out]",
     "-map", "[out]",
     "-c:a", "libmp3lame",
@@ -99,8 +106,8 @@ function iniciarRadio() {
 
   ffmpeg.stderr.on("data", data => console.log("FFmpeg:", data.toString()));
 
-  // Enviar silencio inicial para evitar cierre inmediato
-  ffmpeg.stdin.write(SILENCIO_MP3);
+  // Enviar 3s de silencio inicial
+  ffmpeg.stdin.write(generarSilencioBuffer(3));
 
   // ================= LOCUCIONES DINÁMICAS =================
   async function locucionPeriodica() {
@@ -134,7 +141,7 @@ function iniciarRadio() {
 
   ffmpeg.on("close", code => {
     console.log(`🎧 FFmpeg cerró con código ${code || "null"}. Reiniciando radio...`);
-    iniciarRadio(); // Reinicia automáticamente
+    iniciarRadio();
   });
 }
 
@@ -142,6 +149,7 @@ function iniciarRadio() {
 iniciarRadio();
 
 // ================= API FRONTEND =================
+app.use(express.static(__dirname));
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   next();
@@ -162,9 +170,7 @@ app.get("/news", async (req, res) => {
   res.send(r.data);
 });
 
-app.get("/", (req, res) => {
-  res.send("🎧 Radio IA 24/7 PROFESIONAL EN VIVO");
-});
+app.get("/", (req, res) => res.send("🎧 Radio IA 24/7 PROFESIONAL EN VIVO"));
 
 // ================= SERVER =================
 const PORT = process.env.PORT || 3000;
