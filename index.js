@@ -1,9 +1,7 @@
-  
 const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
-const fs = require("fs");
-const { exec } = require("child_process");
+const { spawn } = require("child_process");
 const ffmpegPath = require("ffmpeg-static");
 
 const app = express();
@@ -59,99 +57,76 @@ async function crearGuion() {
   }
 }
 
-// ================= VOZ =================
+// ================= VOZ EN MEMORIA =================
 
-async function generarVoz(texto) {
+async function generarVozBuffer(texto) {
   return new Promise((resolve, reject) => {
     const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
-
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
 
     synthesizer.speakTextAsync(
       texto,
-      (result) => {
-        fs.writeFileSync("voz.mp3", Buffer.from(result.audioData));
+      result => {
+        const buffer = Buffer.from(result.audioData);
         synthesizer.close();
-        resolve();
+        resolve(buffer);
       },
-      (err) => reject(err)
+      err => reject(err)
     );
-  });
-}
-
-// ================= AUDIO =================
-
-async function descargarMusica() {
-  const response = await axios({
-    url: "https://az.azurafree.eu/listen/la_fronterisima/radio.mp3",
-    method: "GET",
-    responseType: "stream"
-  });
-
-  const writer = fs.createWriteStream("musica.mp3");
-  response.data.pipe(writer);
-
-  return new Promise((resolve, reject) => {
-    writer.on("finish", resolve);
-    writer.on("error", reject);
-  });
-}
-
-// 🎚 Mezcla tipo radio real
-function mezclarAudio() {
-  return new Promise((resolve, reject) => {
-    exec(`"${ffmpegPath}" -y \
--i musica.mp3 -t 15 \
--i voz.mp3 \
--filter_complex "[1:a]volume=3[a1];[0:a][a1]sidechaincompress=threshold=0.02:ratio=12[out]" \
--map "[out]" \
--c:a libmp3lame salida.mp3`, (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
   });
 }
 
 // ================= STREAM EN VIVO =================
 
-function transmitirEnVivo() {
-  return new Promise((resolve, reject) => {
+async function transmitirEnVivo() {
+  console.log("🎙 Preparando guion...");
+  const guion = await crearGuion();
+  const vozBuffer = await generarVozBuffer(guion);
 
-    const url = `icecast://source:${ICECAST_PASSWORD}@${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`;
+  console.log("📡 Transmitiendo en vivo...");
 
-    console.log("📡 Enviando a:", url);
+  const icecastUrl = `icecast://source:${ICECAST_PASSWORD}@${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`;
 
-    exec(`"${ffmpegPath}" -re \
--i salida.mp3 \
--c:a libmp3lame -b:a 128k \
--f mp3 "${url}"`, (err) => {
-      if (err) reject(err);
-      else resolve();
-    });
+  // FFmpeg: mezcla música de stream + locución en buffer
+  const ffmpeg = spawn(ffmpegPath, [
+    "-re",
+    "-i", "https://az.azurafree.eu/listen/la_fronterisima/radio.mp3", // música
+    "-f", "mp3",
+    "-i", "pipe:0", // locución desde stdin
+    "-filter_complex", "[1:a]volume=3[a1];[0:a][a1]sidechaincompress=threshold=0.02:ratio=12[out]",
+    "-map", "[out]",
+    "-c:a", "libmp3lame",
+    "-b:a", "128k",
+    "-f", "mp3",
+    icecastUrl
+  ]);
 
-  });
+  // Enviar buffer de voz a FFmpeg
+  ffmpeg.stdin.write(vozBuffer);
+  ffmpeg.stdin.end();
+
+  ffmpeg.stdout.on("data", data => console.log("FFmpeg:", data.toString()));
+  ffmpeg.stderr.on("data", data => console.log("FFmpeg err:", data.toString()));
+
+  ffmpeg.on("close", code => console.log(`🎧 Transmisión finalizada (code ${code})`));
 }
 
-// ================= DJ =================
+// ================= DJ AUTOMÁTICO =================
+
+let enEjecucion = false;
 
 async function DJAutomatico() {
+  if (enEjecucion) return;
+  enEjecucion = true;
+
   try {
-    console.log("🎙 Generando locución...");
-
-    const guion = await crearGuion();
-
-    await generarVoz(guion);
-    await descargarMusica();
-    await mezclarAudio();
-
-    // 🔥 ENVÍA DIRECTO AL STREAM
     await transmitirEnVivo();
-
-    console.log("🚀 EN VIVO COMPLETADO");
-
+    console.log("🚀 DJ en vivo completo");
   } catch (err) {
-    console.error("❌ Error:", err);
+    console.error("❌ Error DJ:", err.message);
+  } finally {
+    enEjecucion = false;
   }
 }
 
@@ -185,7 +160,4 @@ app.get("/", (req, res) => {
 // ================= SERVER =================
 
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("🚀 Servidor en puerto " + PORT);
-});
+app.listen(PORT, () => console.log(`🚀 Servidor escuchando en puerto ${PORT}`));
