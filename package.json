@@ -1,5 +1,5 @@
 {
-  "name": "radio-ia-fronterisima",
+  "name": "radio-ia",
   "version": "1.1.0",
   "description": "Locutor Virtual con IA para La Fronterísima Radio",
   "main": "server.js",
