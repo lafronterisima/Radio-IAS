@@ -2,36 +2,26 @@ const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
+const FormData = require("form-data");
 const { exec } = require("child_process");
 const ffmpegPath = require("ffmpeg-static");
-require('dotenv').config();
 
 const app = express();
 
-// ================= CONFIGURACIÓN =================
-// Las llaves se leen de las variables de entorno de Koyeb
-const AZURE_KEY = process.env.AZURE_SPEECH_KEY;
-const AZURE_REGION = process.env.AZURE_REGION;
+// ================= CONFIG =================
+const AZURA_API = process.env.AZURA_API;
+const AZURA_KEY = process.env.AZURA_KEY;
 
-// ================= UTILIDADES =================
+// ================= HORA =================
 function getHora() {
   return new Date().toLocaleTimeString("es-CO", {
     timeZone: "America/Bogota",
     hour: "2-digit",
     minute: "2-digit",
-    hour12: true
   });
 }
 
-// Limpia archivos antiguos al arrancar o antes de cada locución
-function limpiarTemporales() {
-  const archivos = ["voz.mp3", "procesando.mp3", "salida.mp3"];
-  archivos.forEach(file => {
-    if (fs.existsSync(file)) fs.unlinkSync(file);
-  });
-}
-
-// ================= GENERACIÓN DE GUION =================
+// ================= GUION =================
 async function crearGuion() {
   try {
     const [songRes, weatherRes, newsRes] = await Promise.all([
@@ -41,87 +31,105 @@ async function crearGuion() {
     ]);
 
     const song = songRes.data.now_playing.song;
-    const clima = Math.round(weatherRes.data.current_weather.temperature) + " grados";
-    const noticias = [...newsRes.data.matchAll(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/g)]
-      .slice(2, 4).map(m => m[1] || m[2]).join(". ");
+    const clima = weatherRes.data.current_weather.temperature + " grados";
 
-    return `Hola, son las ${getHora()} en Colombia. El clima en Cali es de ${clima}. Estás escuchando a ${song.artist} con el éxito ${song.title}. En noticias: ${noticias}. Sigue con más música en La Fronterísima.`;
-  } catch (error) {
-    return "Estás escuchando La Fronterísima Radio, acompañándote con la mejor música las 24 horas.";
+    const noticias = [...newsRes.data.matchAll(/<title>(.*?)<\/title>/g)]
+      .slice(1, 4)
+      .map(m => m[1])
+      .join(". ");
+
+    return `Hola, son las ${getHora()} en Colombia.
+El clima es ${clima}.
+Estás escuchando ${song.artist} - ${song.title}.
+Noticias: ${noticias}`;
+  } catch (err) {
+    console.error(err);
+    return "Estás escuchando La Fronterísima Radio";
   }
 }
 
-// ================= SÍNTESIS DE VOZ =================
+// ================= VOZ =================
 async function generarVoz(texto) {
   return new Promise((resolve, reject) => {
-    const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
+    const speechConfig = sdk.SpeechConfig.fromSubscription(
+      process.env.AZURE_KEY,
+      process.env.AZURE_REGION
+    );
+
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
-    speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16khz32kBitrateMonoMp3;
 
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
-    synthesizer.speakTextAsync(texto, result => {
-      if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+
+    synthesizer.speakTextAsync(
+      texto,
+      result => {
         fs.writeFileSync("voz.mp3", Buffer.from(result.audioData));
-        synthesizer.close();
         resolve();
-      } else {
-        synthesizer.close();
-        reject("Error Azure: " + result.errorDetails);
-      }
-    }, err => { synthesizer.close(); reject(err); });
+      },
+      err => reject(err)
+    );
   });
 }
 
-// ================= MEZCLA Y PUBLICACIÓN =================
-function mezclarYPublicar() {
+// ================= MEZCLA =================
+function mezclarAudio() {
   return new Promise((resolve, reject) => {
-    // Si no hay fondo, la voz pasa a ser el archivo procesando
-    if (!fs.existsSync("fondo.mp3")) {
-      fs.copyFileSync("voz.mp3", "procesando.mp3");
-      fs.renameSync("procesando.mp3", "salida.mp3");
-      return resolve();
-    }
-
-    const comando = `"${ffmpegPath}" -y -i fondo.mp3 -i voz.mp3 -filter_complex "[0:a]volume=0.4[bg];[1:a]volume=1.5[v];[bg][v]sidechaincompress=threshold=0.1:ratio=20:attack=100:release=1000[out]" -map "[out]" -c:a libmp3lame -b:a 128k procesando.mp3`;
-
-    exec(comando, (err) => {
-      if (err) return reject(err);
-      
-      // ✅ EL PASO CLAVE: Solo cuando FFmpeg termina, Liquidsoap ve el archivo
-      if (fs.existsSync("procesando.mp3")) {
-        fs.renameSync("procesando.mp3", "salida.mp3");
-        console.log("📢 DJ Publicado: salida.mp3 listo para transmitir.");
-      }
-      resolve();
+    exec(`"${ffmpegPath}" -y \
+-i musica.mp3 \
+-i voz.mp3 \
+-filter_complex "[0:a][1:a]sidechaincompress=threshold=0.03:ratio=10[out]" \
+-map "[out]" \
+-c:a libmp3lame salida.mp3`, (err) => {
+      if (err) reject(err);
+      else resolve();
     });
   });
 }
 
-// ================= FUNCIÓN PRINCIPAL =================
+// ================= SUBIR AZURA =================
+async function subirAzura() {
+  const file = fs.readFileSync("salida.mp3");
+
+  const form = new FormData();
+  form.append("path", "dj/dj_auto.mp3");
+  form.append("file", file, "dj_auto.mp3");
+
+  await axios.post(AZURA_API, form, {
+    headers: {
+      ...form.getHeaders(),
+      "X-API-Key": AZURA_KEY
+    }
+  });
+
+  console.log("🎧 Subido a AzuraCast");
+}
+
+// ================= DJ =================
 async function DJ() {
   try {
-    console.log(`--- Iniciando ciclo de IA ${new Date().toISOString()} ---`);
-    
-    // 1. Limpiar rastro anterior para que Liquidsoap no repita audios viejos
-    limpiarTemporales();
+    console.log("🎙 Generando...");
 
-    // 2. Crear contenido
     const texto = await crearGuion();
     await generarVoz(texto);
-    
-    // 3. Procesar y publicar
-    await mezclarYPublicar();
-    
-    console.log("✅ Ciclo completado con éxito.");
+    await mezclarAudio();
+    await subirAzura();
+
+    console.log("✅ Emitido");
   } catch (err) {
-    console.error("❌ Error en el DJ:", err.message);
+    console.error("❌ Error:", err);
   }
 }
 
-// Configuración de intervalos
-setInterval(DJ, 15 * 60 * 1000); // Cada 15 min
-setTimeout(DJ, 5000);            // Primer inicio a los 5 seg
+// Ejecutar cada 15 min
+DJ();
+setInterval(DJ, 15 * 60 * 1000);
 
-// Servidor para Health Check de Koyeb
-app.get("/", (req, res) => res.send("📻 LA FRONTERÍSIMA IA: ACTIVA"));
-app.listen(process.env.PORT || 3000, '0.0.0.0');
+// ================= SERVER =================
+app.get("/", (req, res) => {
+  res.send("🎧 Radio IA en Koyeb activa");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("🚀 Servidor en puerto " + PORT);
+});
