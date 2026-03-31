@@ -1,147 +1,152 @@
+
+   
 const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
-const { spawn } = require("child_process");
-const ffmpegPath = require("ffmpeg-static");
 const fs = require("fs");
-const path = require("path");
+const FormData = require("form-data");
+const { exec } = require("child_process");
+const ffmpegPath = require("ffmpeg-static");
+require('dotenv').config(); // 👈 Recomendado para manejar llaves
 
 const app = express();
 
-const AZURE_KEY = process.env.AZURE_KEY;
-const AZURE_REGION = process.env.AZURE_REGION;
+// ================= CONFIG =================
+const AZURA_API = "https://az.azurafree.eu/api/station/24/files";
+const AZURA_KEY = process.env.AZURA_KEY || "dd608c7b0c3e41ad:091b0407a742cefb20e5095a57b7e8d8"; 
 
-const ICECAST_HOST = process.env.ICECAST_HOST;
-const ICECAST_PORT = process.env.ICECAST_PORT;
-const ICECAST_PASSWORD = process.env.ICECAST_PASSWORD;
-const ICECAST_MOUNT = process.env.ICECAST_MOUNT;
-
-const LOCUCION_INTERVAL = 15; // minutos
-const JINGLE_PATH = path.join(__dirname, "jingle.mp3");
-
-// ================= UTIL =================
+// ================= HORA =================
 function getHora() {
   return new Date().toLocaleTimeString("es-CO", {
     timeZone: "America/Bogota",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: true
   });
 }
 
 // ================= GUION =================
 async function crearGuion() {
   try {
-    let song = "La Fronterísima Radio", clima = "desconocido", noticias = "No hay noticias";
+    const [songRes, weatherRes, newsRes] = await Promise.all([
+      axios.get("https://az.azurafree.eu/api/nowplaying/la_fronterisima"),
+      axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true"),
+      axios.get("https://feeds.bbci.co.uk/mundo/rss.xml")
+    ]);
 
-    try {
-      const songRes = await axios.get("https://az.azurafree.eu/api/nowplaying/la_fronterisima");
-      const s = songRes.data.now_playing.song;
-      song = `${s.artist} - ${s.title}`;
-    } catch {}
+    const song = songRes.data.now_playing.song;
+    const clima = Math.round(weatherRes.data.current_weather.temperature) + " grados"; // "grados" suena mejor que "C" en voz
 
-    try {
-      const weatherRes = await axios.get(
-        "https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true"
-      );
-      clima = weatherRes.data.current_weather.temperature + "°C";
-    } catch {}
+    // Limpiamos un poco los títulos de noticias (quitamos etiquetas si hay)
+    const noticias = [...newsRes.data.matchAll(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>(.*?)<\/title>/g)]
+      .slice(2, 4) // Saltamos el título del canal
+      .map(m => m[1] || m[2])
+      .join(". ");
 
-    try {
-      const newsRes = await axios.get("https://feeds.bbci.co.uk/mundo/rss.xml");
-      noticias = newsRes.data
-        .split("<title>")
-        .slice(2, 5)
-        .map(t => t.split("</title>")[0])
-        .join(". ");
-    } catch {}
-
-    return `Hola, son las ${getHora()} en Colombia. El clima en Cali es ${clima}. Estás escuchando ${song}. Noticias: ${noticias}`;
-  } catch (err) {
-    console.error("Error creando guion:", err);
-    return "Estás escuchando La Fronterísima Radio";
+    return `Hola, son las ${getHora()} en Colombia. El clima en Cali es de ${clima}. Estás escuchando a ${song.artist} con el éxito ${song.title}. En noticias: ${noticias}. Sigue con más música en La Fronterísima.`;
+  } catch (error) {
+    console.error("Error en guion:", error.message);
+    return "Estás escuchando La Fronterísima Radio, la emisora que te acompaña con la mejor música las 24 horas.";
   }
 }
 
-// ================= VOZ EN MEMORIA =================
-async function generarVozBuffer(texto) {
+// ================= VOZ =================
+async function generarVoz(texto) {
   return new Promise((resolve, reject) => {
-    const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
+    const speechConfig = sdk.SpeechConfig.fromSubscription(
+      process.env.AZURE_SPEECH_KEY, // 👈 Asegúrate que coincida con tu .env
+      process.env.AZURE_REGION
+    );
+
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
+    // Forzamos salida a MP3 (Azure por defecto usa WAV)
+    speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16khz32kBitrateMonoMp3;
+
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
 
     synthesizer.speakTextAsync(
       texto,
       result => {
-        synthesizer.close();
-        resolve(Buffer.from(result.audioData));
+        if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+          fs.writeFileSync("voz.mp3", Buffer.from(result.audioData));
+          synthesizer.close();
+          resolve();
+        } else {
+          reject("Error en síntesis: " + result.errorDetails);
+        }
       },
-      err => reject(err)
+      err => {
+        synthesizer.close();
+        reject(err);
+      }
     );
   });
 }
 
-// ================= STREAM EN VIVO =================
-function iniciarStreamContinuo() {
-  const icecastUrl = `icecast://source:${ICECAST_PASSWORD}@${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`;
-  const musicaUrl = "https://az.azurafree.eu/listen/la_fronterisima/radio.mp3";
+// ================= MEZCLA (DUCKING PRO) =================
+function mezclarAudio() {
+  return new Promise((resolve, reject) => {
+    // Asegúrate de tener un archivo "fondo.mp3" (la cortina musical) en la carpeta raíz
+    // Este comando baja el volumen de la música automáticamente cuando entra la voz
+    const comando = `"${ffmpegPath}" -y -i fondo.mp3 -i voz.mp3 -filter_complex "[0:a]volume=0.5[bg];[1:a]volume=1.2[v];[bg][v]sidechaincompress=threshold=0.1:ratio=20:attack=100:release=1000[out]" -map "[out]" -c:a libmp3lame -b:a 128k salida.mp3`;
 
-  // FFmpeg streaming principal
-  const ffmpeg = spawn(ffmpegPath, [
-    "-re",
-    "-i", musicaUrl,
-    "-i", "pipe:0", // para locuciones y jingles dinámicos
-    "-filter_complex", "[0:a][1:a]amix=inputs=2:dropout_transition=2:weights=1 2[aout]",
-    "-map", "[aout]",
-    "-c:a", "libmp3lame",
-    "-b:a", "128k",
-    "-f", "mp3",
-    icecastUrl
-  ]);
-
-  ffmpeg.stdout.on("data", data => process.stdout.write(`[FFMPEG] ${data}`));
-  ffmpeg.stderr.on("data", data => process.stderr.write(`[FFMPEG] ${data}`));
-  ffmpeg.on("close", code => console.log(`FFmpeg cerrado con código ${code}`));
-
-  return ffmpeg.stdin; // retorna stdin para enviar audio dinámico
+    exec(comando, (err) => {
+      if (err) reject("Error en FFmpeg: " + err);
+      else resolve();
+    });
+  });
 }
 
-// ================= LOCUCIONES DINÁMICAS =================
-async function overlayLocucion(ffmpegStdin) {
+// ================= SUBIR AZURA =================
+async function subirAzura() {
   try {
-    const guion = await crearGuion();
-    const vozBuffer = await generarVozBuffer(guion);
+    const file = fs.createReadStream("salida.mp3"); // 👈 Stream es más eficiente que readFileSync
 
-    // Enviar buffer directo a FFmpeg stdin
-    ffmpegStdin.write(vozBuffer);
-    console.log("✅ Locución transmitida en vivo");
+    const form = new FormData();
+    form.append("path", "dj/dj_auto.mp3");
+    form.append("file", file);
+
+    await axios.post(AZURA_API, form, {
+      headers: {
+        ...form.getHeaders(),
+        "X-API-Key": AZURA_KEY
+      }
+    });
+
+    console.log("🎧 Audio subido con éxito a AzuraCast");
   } catch (err) {
-    console.error("❌ Error en locución:", err);
+    throw new Error("Error al subir a Azura: " + err.message);
   }
 }
 
-// ================= DJ AUTOMÁTICO =================
-const ffmpegStdin = iniciarStreamContinuo();
-overlayLocucion(ffmpegStdin);
-setInterval(() => overlayLocucion(ffmpegStdin), LOCUCION_INTERVAL * 60 * 1000);
+// ================= FUNCIÓN PRINCIPAL =================
+async function DJ() {
+  try {
+    console.log(`--- Iniciando locución ${new Date().toISOString()} ---`);
+    
+    const texto = await crearGuion();
+    console.log("📝 Guion:", texto);
 
-// ================= API FRONTEND =================
-app.use(express.static(__dirname));
-app.use((req, res, next) => { res.header("Access-Control-Allow-Origin", "*"); next(); });
+    await generarVoz(texto);
+    console.log("🔊 Voz generada.");
 
-app.get("/song", async (req, res) => {
-  const r = await axios.get("https://az.azurafree.eu/api/nowplaying/la_fronterisima");
-  res.json(r.data);
-});
-app.get("/weather", async (req, res) => {
-  const r = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
-  res.json(r.data);
-});
-app.get("/news", async (req, res) => {
-  const r = await axios.get("https://feeds.bbci.co.uk/mundo/rss.xml");
-  res.send(r.data);
-});
-app.get("/", (req, res) => res.send("🎧 Radio IA 24/7 PROFESIONAL"));
+    await mezclarAudio();
+    console.log("🎚️ Mezcla completada.");
+
+    await subirAzura();
+    console.log("✅ Proceso finalizado.");
+  } catch (err) {
+    console.error("❌ Error en el flujo del DJ:", err);
+  }
+}
+
+// Ejecutar cada 15 min
+setInterval(DJ, 15 * 60 * 1000);
+// Ejecución inicial tras 5 segundos para dejar que el servidor arranque
+setTimeout(DJ, 5000);
 
 // ================= SERVER =================
+app.get("/", (req, res) => res.send("🎧 DJ IA ACTIVO"));
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Servidor escuchando en puerto ${PORT}`));
+app.listen(PORT, () => console.log("🚀 Servidor en puerto " + PORT));
