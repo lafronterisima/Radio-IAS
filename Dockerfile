@@ -1,24 +1,24 @@
+ 
+# Usamos una imagen de Node compacta pero completa
+FROM node:18-slim
 
-# Imagen base Node.js
-FROM node:20-bullseye
+# INSTALACIÓN CLAVE: Instalamos ffmpeg directamente en el sistema operativo
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
-# Instalar ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
-
+# Directorio de trabajo
 WORKDIR /app
 
-# Copiar package.json e instalar dependencias
+# Copiamos solo los archivos de dependencias primero (optimiza el tiempo de carga)
 COPY package*.json ./
-RUN npm install
+RUN npm install --production
 
-# Copiar el resto de la app
+# Copiamos el resto del código y tu archivo de fondo musical
 COPY . .
 
-# Variables de entorno se configuran en Render
-ENV NODE_ENV=production
-
-# Exponer puerto (Render lo usa)
+# Exponemos el puerto para Koyeb
 EXPOSE 3000
 
-# Ejecutar el web service
-CMD ["node", "index.js"]
+# Comando para arrancar el DJ
+CMD ["node", "server.js"]
