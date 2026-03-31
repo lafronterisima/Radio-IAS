@@ -1,4 +1,4 @@
- const express = require("express");
+const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
@@ -102,35 +102,24 @@ async function subirAzura() {
   try {
     const file = fs.createReadStream("salida.mp3");
     const form = new FormData();
-    form.append("path", "dj/dj_auto.mp3");
+    
+    // CAMBIO CLAVE: Subir a la raíz para evitar el error 403 de carpeta inexistente
+    form.append("path", "dj_auto.mp3"); 
     form.append("file", file);
 
+    console.log("📤 Intentando subir a:", AZURA_API);
+
     await axios.post(AZURA_API, form, {
-      headers: { ...form.getHeaders(), "X-API-Key": AZURA_KEY }
+      headers: { 
+        ...form.getHeaders(), 
+        "X-API-Key": AZURA_KEY 
+      }
     });
-    console.log("✅ Audio subido a AzuraCast");
+    console.log("✅ Audio subido con éxito a la raíz de AzuraCast");
   } catch (err) {
+    // Si falla, nos dará el detalle exacto del porqué
+    console.error("❌ Detalle del error 403/404:", err.response?.data || err.message);
     throw new Error("Error subida: " + err.message);
-  }
-}
-
-// ================= FUNCIÓN MAESTRA (DJ) =================
-async function DJ() {
-  console.log(`\n🎙️ [${new Date().toISOString()}] Iniciando locución...`);
-  try {
-    const guion = await crearGuion();
-    console.log("📝 Guion:", guion);
-
-    await generarVoz(guion);
-    console.log("🔊 Voz generada.");
-
-    await mezclarAudio();
-    console.log("🎚️ Mezcla finalizada.");
-
-    await subirAzura();
-    console.log("🚀 DJ al aire con éxito.");
-  } catch (error) {
-    console.error("❌ Fallo en el proceso DJ:", error);
   }
 }
 
