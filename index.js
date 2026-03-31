@@ -12,6 +12,13 @@ const app = express();
 const AZURA_API = process.env.AZURA_API;
 const AZURA_KEY = process.env.AZURA_KEY;
 
+// ================= CORS =================
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "*");
+  next();
+});
+
 // ================= HORA =================
 function getHora() {
   return new Date().toLocaleTimeString("es-CO", {
@@ -38,12 +45,12 @@ async function crearGuion() {
       .map(m => m[1])
       .join(". ");
 
-    return `Hola, son las ${getHora()} en Colombia.
-El clima es ${clima}.
-Estás escuchando ${song.artist} - ${song.title}.
+    return `Hola, son las ${getHora()} en Colombia. 
+El clima es ${clima}. 
+Estás escuchando ${song.artist} - ${song.title}. 
 Noticias: ${noticias}`;
   } catch (err) {
-    console.error(err);
+    console.error("Error guion:", err);
     return "Estás escuchando La Fronterísima Radio";
   }
 }
@@ -107,29 +114,62 @@ async function subirAzura() {
 // ================= DJ =================
 async function DJ() {
   try {
-    console.log("🎙 Generando...");
+    console.log("🎙 Generando locución...");
 
     const texto = await crearGuion();
     await generarVoz(texto);
     await mezclarAudio();
     await subirAzura();
 
-    console.log("✅ Emitido");
+    console.log("✅ DJ emitido");
   } catch (err) {
-    console.error("❌ Error:", err);
+    console.error("❌ Error DJ:", err);
   }
 }
 
-// Ejecutar cada 15 min
+// Ejecutar cada 15 minutos
 DJ();
 setInterval(DJ, 15 * 60 * 1000);
 
-// ================= SERVER =================
-app.get("/", (req, res) => {
-  res.send("🎧 Radio IA en Koyeb activa");
+// ================= RUTAS FRONTEND =================
+
+// 🎵 CANCIÓN
+app.get("/song", async (req, res) => {
+  try {
+    const r = await axios.get("https://az.azurafree.eu/api/nowplaying/la_fronterisima");
+    res.json(r.data);
+  } catch {
+    res.status(500).json({ error: "Error canción" });
+  }
 });
 
+// 🌤 CLIMA
+app.get("/weather", async (req, res) => {
+  try {
+    const r = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
+    res.json(r.data);
+  } catch {
+    res.status(500).json({ error: "Error clima" });
+  }
+});
+
+// 📰 NOTICIAS
+app.get("/news", async (req, res) => {
+  try {
+    const r = await axios.get("https://feeds.bbci.co.uk/mundo/rss.xml");
+    res.send(r.data);
+  } catch {
+    res.status(500).send("Error noticias");
+  }
+});
+
+// ================= HOME =================
+app.get("/", (req, res) => {
+  res.send("🎧 Radio IA Koyeb funcionando");
+});
+
+// ================= SERVER =================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("🚀 Servidor en puerto " + PORT);
+  console.log("🚀 Servidor corriendo en puerto " + PORT);
 });
