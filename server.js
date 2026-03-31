@@ -11,7 +11,7 @@ const app = express();
 const parser = new Parser();
 
 // ================= CONFIGURACIÓN =================
-const AZURA_API = "https://az.azurafree.eu/api/station/1/files";
+const AZURA_API = "https://az.azurafree.eu/api/station/24/files";
 const AZURA_KEY = process.env.AZURA_KEY;
 const AZURE_SPEECH_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_REGION = process.env.AZURE_REGION;
