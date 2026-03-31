@@ -6,14 +6,7 @@ const ffmpegPath = require("ffmpeg-static");
 
 const app = express();
 
-// ✅ CORS
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  next();
-});
-
 // ================= CONFIG =================
-
 const AZURE_KEY = process.env.AZURE_KEY;
 const AZURE_REGION = process.env.AZURE_REGION;
 
@@ -22,8 +15,11 @@ const ICECAST_PORT = process.env.ICECAST_PORT;
 const ICECAST_PASSWORD = process.env.ICECAST_PASSWORD;
 const ICECAST_MOUNT = process.env.ICECAST_MOUNT;
 
-// ================= UTIL =================
+// Intervalo de locuciones y jingles en minutos
+const LOCUCION_INTERVAL = 15;
+const JINGLE_INTERVAL = 30;
 
+// ================= UTIL =================
 function getHora() {
   return new Date().toLocaleTimeString("es-CO", {
     timeZone: "America/Bogota",
@@ -33,7 +29,6 @@ function getHora() {
 }
 
 // ================= GUION =================
-
 async function crearGuion() {
   try {
     const [songRes, weatherRes, newsRes] = await Promise.all([
@@ -58,7 +53,6 @@ async function crearGuion() {
 }
 
 // ================= VOZ EN MEMORIA =================
-
 async function generarVozBuffer(texto) {
   return new Promise((resolve, reject) => {
     const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
@@ -77,66 +71,74 @@ async function generarVozBuffer(texto) {
   });
 }
 
-// ================= STREAM EN VIVO =================
-
-async function transmitirEnVivo() {
-  console.log("🎙 Preparando guion...");
-  const guion = await crearGuion();
-  const vozBuffer = await generarVozBuffer(guion);
-
-  console.log("📡 Transmitiendo en vivo...");
-
+// ================= RADIO 24/7 PROFESIONAL =================
+function iniciarRadio() {
   const icecastUrl = `icecast://source:${ICECAST_PASSWORD}@${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`;
 
-  // FFmpeg: mezcla música de stream + locución en buffer
-  const ffmpeg = spawn(ffmpegPath, [
+  console.log("📡 Iniciando radio profesional 24/7...");
+
+  const ffmpegArgs = [
     "-re",
-    "-i", "https://az.azurafree.eu/listen/la_fronterisima/radio.mp3", // música
+    "-i", "https://az.azurafree.eu/listen/la_fronterisima/radio.mp3", // música continua
     "-f", "mp3",
-    "-i", "pipe:0", // locución desde stdin
+    "-i", "pipe:0", // locuciones/jingles desde stdin
     "-filter_complex", "[1:a]volume=3[a1];[0:a][a1]sidechaincompress=threshold=0.02:ratio=12[out]",
     "-map", "[out]",
     "-c:a", "libmp3lame",
     "-b:a", "128k",
     "-f", "mp3",
     icecastUrl
-  ]);
+  ];
 
-  // Enviar buffer de voz a FFmpeg
-  ffmpeg.stdin.write(vozBuffer);
-  ffmpeg.stdin.end();
+  const ffmpeg = spawn(ffmpegPath, ffmpegArgs);
 
-  ffmpeg.stdout.on("data", data => console.log("FFmpeg:", data.toString()));
-  ffmpeg.stderr.on("data", data => console.log("FFmpeg err:", data.toString()));
+  ffmpeg.stderr.on("data", data => console.log("FFmpeg:", data.toString()));
 
-  ffmpeg.on("close", code => console.log(`🎧 Transmisión finalizada (code ${code})`));
-}
-
-// ================= DJ AUTOMÁTICO =================
-
-let enEjecucion = false;
-
-async function DJAutomatico() {
-  if (enEjecucion) return;
-  enEjecucion = true;
-
-  try {
-    await transmitirEnVivo();
-    console.log("🚀 DJ en vivo completo");
-  } catch (err) {
-    console.error("❌ Error DJ:", err.message);
-  } finally {
-    enEjecucion = false;
+  // ================= LOCUCIONES DINÁMICAS =================
+  async function locucionPeriodica() {
+    try {
+      const guion = await crearGuion();
+      const vozBuffer = await generarVozBuffer(guion);
+      console.log("🎙 Enviando locución dinámica...");
+      ffmpeg.stdin.write(vozBuffer);
+    } catch (err) {
+      console.error("❌ Error locución:", err.message);
+    } finally {
+      setTimeout(locucionPeriodica, LOCUCION_INTERVAL * 60 * 1000);
+    }
   }
+
+  // ================= JINGLES AUTOMÁTICOS =================
+  async function jinglePeriodico() {
+    try {
+      // Aquí puedes usar un buffer de jingle local
+      const jingleBuffer = require("fs").readFileSync("jingle.mp3");
+      console.log("🎶 Enviando jingle...");
+      ffmpeg.stdin.write(jingleBuffer);
+    } catch (err) {
+      console.error("❌ Error jingle:", err.message);
+    } finally {
+      setTimeout(jinglePeriodico, JINGLE_INTERVAL * 60 * 1000);
+    }
+  }
+
+  setTimeout(locucionPeriodica, LOCUCION_INTERVAL * 60 * 1000);
+  setTimeout(jinglePeriodico, JINGLE_INTERVAL * 60 * 1000);
+
+  ffmpeg.on("close", code => {
+    console.log(`🎧 FFmpeg cerró con código ${code}. Reiniciando radio...`);
+    iniciarRadio(); // Reinicia automáticamente si falla
+  });
 }
 
-// ▶ iniciar
-DJAutomatico();
-
-// ⏱ cada 25 min
-setInterval(DJAutomatico, 25 * 60 * 1000);
+// ▶ Iniciar radio profesional
+iniciarRadio();
 
 // ================= API FRONTEND =================
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  next();
+});
 
 app.get("/song", async (req, res) => {
   const r = await axios.get("https://az.azurafree.eu/api/nowplaying/la_fronterisima");
@@ -154,10 +156,9 @@ app.get("/news", async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("🎧 Radio IA EN VIVO");
+  res.send("🎧 Radio IA 24/7 PROFESIONAL EN VIVO");
 });
 
 // ================= SERVER =================
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Servidor escuchando en puerto ${PORT}`));
