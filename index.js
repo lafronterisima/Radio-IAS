@@ -2,6 +2,7 @@ const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const { spawn } = require("child_process");
+const fs = require("fs");
 const ffmpegPath = require("ffmpeg-static");
 
 const app = express();
@@ -15,7 +16,7 @@ const ICECAST_PORT = process.env.ICECAST_PORT;
 const ICECAST_PASSWORD = process.env.ICECAST_PASSWORD;
 const ICECAST_MOUNT = process.env.ICECAST_MOUNT;
 
-// Intervalo de locuciones y jingles en minutos
+// Intervalos en minutos
 const LOCUCION_INTERVAL = 15;
 const JINGLE_INTERVAL = 30;
 
@@ -71,7 +72,11 @@ async function generarVozBuffer(texto) {
   });
 }
 
-// ================= RADIO 24/7 PROFESIONAL =================
+// ================= SILENCIO INICIAL =================
+const SILENCIO_MP3 = fs.readFileSync("silencio.mp3"); 
+// Genera este archivo con: ffmpeg -f lavfi -i anullsrc=r=44100:cl=stereo -t 3 silencio.mp3
+
+// ================= RADIO PROFESIONAL =================
 function iniciarRadio() {
   const icecastUrl = `icecast://source:${ICECAST_PASSWORD}@${ICECAST_HOST}:${ICECAST_PORT}${ICECAST_MOUNT}`;
 
@@ -81,7 +86,7 @@ function iniciarRadio() {
     "-re",
     "-i", "https://az.azurafree.eu/listen/la_fronterisima/radio.mp3", // música continua
     "-f", "mp3",
-    "-i", "pipe:0", // locuciones/jingles desde stdin
+    "-i", "pipe:0", // stdin para locuciones/jingles
     "-filter_complex", "[1:a]volume=3[a1];[0:a][a1]sidechaincompress=threshold=0.02:ratio=12[out]",
     "-map", "[out]",
     "-c:a", "libmp3lame",
@@ -93,6 +98,9 @@ function iniciarRadio() {
   const ffmpeg = spawn(ffmpegPath, ffmpegArgs);
 
   ffmpeg.stderr.on("data", data => console.log("FFmpeg:", data.toString()));
+
+  // Enviar silencio inicial para evitar cierre inmediato
+  ffmpeg.stdin.write(SILENCIO_MP3);
 
   // ================= LOCUCIONES DINÁMICAS =================
   async function locucionPeriodica() {
@@ -111,8 +119,7 @@ function iniciarRadio() {
   // ================= JINGLES AUTOMÁTICOS =================
   async function jinglePeriodico() {
     try {
-      // Aquí puedes usar un buffer de jingle local
-      const jingleBuffer = require("fs").readFileSync("jingle.mp3");
+      const jingleBuffer = fs.readFileSync("jingle.mp3"); // tu jingle local
       console.log("🎶 Enviando jingle...");
       ffmpeg.stdin.write(jingleBuffer);
     } catch (err) {
@@ -126,8 +133,8 @@ function iniciarRadio() {
   setTimeout(jinglePeriodico, JINGLE_INTERVAL * 60 * 1000);
 
   ffmpeg.on("close", code => {
-    console.log(`🎧 FFmpeg cerró con código ${code}. Reiniciando radio...`);
-    iniciarRadio(); // Reinicia automáticamente si falla
+    console.log(`🎧 FFmpeg cerró con código ${code || "null"}. Reiniciando radio...`);
+    iniciarRadio(); // Reinicia automáticamente
   });
 }
 
