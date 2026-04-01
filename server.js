@@ -68,11 +68,9 @@ async function crearGuion() {
 
 async function generarVoz(texto) {
   return new Promise((resolve, reject) => {
-    if (!AZURE_SPEECH_KEY || !AZURE_REGION) return reject("Faltan llaves de Azure");
-    if (fs.existsSync("voz.mp3")) fs.unlinkSync("voz.mp3");
-
     const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_SPEECH_KEY, AZURE_REGION);
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
+    // Formato estándar mp3
     speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3;
 
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
@@ -80,6 +78,7 @@ async function generarVoz(texto) {
       if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
         fs.writeFileSync("voz.mp3", Buffer.from(result.audioData));
         synthesizer.close();
+        console.log("🔊 Voz de Salomé generada con éxito.");
         resolve();
       } else {
         synthesizer.close();
@@ -95,13 +94,26 @@ async function generarVoz(texto) {
 function mezclarAudio() {
   return new Promise((resolve, reject) => {
     if (fs.existsSync("salida.mp3")) fs.unlinkSync("salida.mp3");
-    const comando = fs.existsSync("fondo.mp3") 
-      ? `ffmpeg -y -i fondo.mp3 -i voz.mp3 -filter_complex "[0:a]volume=0.35[bg];[1:a]volume=1.3[v];[bg][v]sidechaincompress=threshold=0.1:ratio=20:attack=100:release=1000[out]" -map "[out]" -c:a libmp3lame -b:a 128k salida.mp3`
+    
+    // Verificamos si existen los archivos antes de mezclar
+    const tieneVoz = fs.existsSync("voz.mp3");
+    const tieneFondo = fs.existsSync("fondo.mp3");
+
+    if (!tieneVoz) return reject("❌ Error: No se encontró voz.mp3 para mezclar");
+
+    // COMANDO OPTIMIZADO: 
+    // [0:a] es el fondo, [1:a] es la voz
+    // Bajamos el fondo a 0.15 y subimos la voz a 1.5
+    const comando = tieneFondo 
+      ? `ffmpeg -y -i fondo.mp3 -i voz.mp3 -filter_complex "[0:a]volume=0.15[bg];[1:a]volume=1.5[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k salida.mp3`
       : `ffmpeg -y -i voz.mp3 -c:a libmp3lame -b:a 128k salida.mp3`;
 
     exec(comando, (err) => {
       if (err) reject("Error FFmpeg: " + err);
-      else resolve();
+      else {
+        console.log("🎵 Mezcla terminada correctamente.");
+        resolve();
+      }
     });
   });
 }
