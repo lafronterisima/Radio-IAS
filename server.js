@@ -2,6 +2,7 @@ const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
+const path = require("path");
 const FormData = require("form-data");
 const { exec } = require("child_process");
 const Parser = require('rss-parser');
@@ -10,14 +11,23 @@ require('dotenv').config();
 const app = express();
 const parser = new Parser();
 
+// Middleware
+app.use(express.json());
+app.use(express.static('public'));
+
 // ======= CONFIGURACIÓN ESTACIÓN 24 =======
 const STATION_ID = "24"; 
 const AZURA_KEY = (process.env.AZURA_KEY || "").trim();
 const AZURE_SPEECH_KEY = (process.env.AZURE_SPEECH_KEY || "").trim();
 const AZURE_REGION = (process.env.AZURE_REGION || "").trim();
-
-// Endpoint correcto para subida de archivos en AzuraCast 0.23.4
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${STATION_ID}/files/upload`;
+
+// Estado para el Frontend
+let ultimoEstado = {
+  guion: "Esperando inicio de locución...",
+  fecha: "--:--",
+  status: "Iniciando sistema..."
+};
 
 // 1. UTILIDADES
 function getHora() {
@@ -30,8 +40,10 @@ function getHora() {
 }
 
 function limpiarTexto(texto) {
-  // Elimina paréntesis, corchetes y etiquetas comunes de YouTube/Promo
-  return texto.replace(/\(.*?\)|\[.*?\]|- VIDEO OFICIAL|- HD|Official Video/gi, "").trim();
+  return texto
+    .replace(/Now On Air:/gi, "")
+    .replace(/\(.*?\)|\[.*?\]|- VIDEO OFICIAL|- HD|Official Video/gi, "")
+    .trim();
 }
 
 // 2. FUNCIONES DE PROCESAMIENTO
@@ -41,7 +53,6 @@ async function crearGuion() {
     let artista = songRes.data.now_playing?.song?.artist || "varios artistas";
     let cancion = songRes.data.now_playing?.song?.title || "la mejor música";
     
-    // Limpieza para que Salomé no lea basura de los títulos
     artista = limpiarTexto(artista);
     cancion = limpiarTexto(cancion);
     
@@ -65,11 +76,9 @@ async function generarVoz(texto) {
 
     const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_SPEECH_KEY, AZURE_REGION);
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
-    // Formato de alta calidad pero ligero
     speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz128KBitRateMonoMp3;
 
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
-
     synthesizer.speakTextAsync(texto, result => {
       if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
         fs.writeFileSync("voz.mp3", Buffer.from(result.audioData));
@@ -89,8 +98,6 @@ async function generarVoz(texto) {
 function mezclarAudio() {
   return new Promise((resolve, reject) => {
     if (fs.existsSync("salida.mp3")) fs.unlinkSync("salida.mp3");
-
-    // Sidechain Compression: La música baja de volumen cuando entra la voz
     const comando = fs.existsSync("fondo.mp3") 
       ? `ffmpeg -y -i fondo.mp3 -i voz.mp3 -filter_complex "[0:a]volume=0.35[bg];[1:a]volume=1.3[v];[bg][v]sidechaincompress=threshold=0.1:ratio=20:attack=100:release=1000[out]" -map "[out]" -c:a libmp3lame -b:a 128k salida.mp3`
       : `ffmpeg -y -i voz.mp3 -c:a libmp3lame -b:a 128k salida.mp3`;
@@ -104,68 +111,46 @@ function mezclarAudio() {
 
 async function subirAzura() {
   if (!fs.existsSync("salida.mp3")) return;
-
   const form = new FormData();
-  form.append("file", fs.createReadStream("salida.mp3"), {
-    filename: 'dj_auto.mp3',
-    contentType: 'audio/mpeg'
-  });
+  form.append("file", fs.createReadStream("salida.mp3"), { filename: 'dj_auto.mp3', contentType: 'audio/mpeg' });
   form.append("path", "dj_auto.mp3");
 
-  try {
-    console.log(`🔑 Subiendo a Estación ${STATION_ID} via X-API-Key...`);
-    
-    await axios.post(AZURA_API_UPLOAD, form, {
-      headers: {
-        ...form.getHeaders(),
-        "X-API-Key": AZURA_KEY,
-        "Accept": "application/json"
-      },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity
-    });
-
-    console.log("✅ ¡POR FIN! Audio subido con éxito a AzuraCast.");
-  } catch (err) {
-    console.error("❌ Error de subida.");
-    if (err.response) {
-      console.log("Status:", err.response.status);
-      console.log("Detalle:", JSON.stringify(err.response.data));
-    } else {
-      console.log("Error:", err.message);
-    }
-  }
+  await axios.post(AZURA_API_UPLOAD, form, {
+    headers: { ...form.getHeaders(), "X-API-Key": AZURA_KEY, "Accept": "application/json" }
+  });
 }
 
 // 3. FUNCIÓN MAESTRA DJ
 async function DJ() {
-  console.log(`\n🎙️ [${new Date().toISOString()}] Iniciando ciclo de locución...`);
+  console.log(`🎙️ [${new Date().toISOString()}] Iniciando locución...`);
+  ultimoEstado.status = "Procesando...";
   try {
     const guion = await crearGuion();
-    console.log("📝 Guion:", guion);
-
+    ultimoEstado.guion = guion;
+    
     await generarVoz(guion);
-    console.log("🔊 Voz generada.");
-
     await mezclarAudio();
-    console.log("🎚️ Mezcla finalizada.");
-
     await subirAzura();
+    
+    ultimoEstado.fecha = new Date().toLocaleTimeString();
+    ultimoEstado.status = "Al aire (Actualizado)";
+    console.log("✅ Ciclo completado.");
   } catch (error) {
-    console.error("⚠️ Fallo en el proceso DJ:", error.message || error);
+    ultimoEstado.status = "Error: " + error.message;
+    console.error("⚠️ Fallo:", error.message);
   }
 }
 
-// 4. SERVIDOR EXPRESS
-app.get("/", (req, res) => res.send(`🎧 DJ IA Fronterísima Estación ${STATION_ID} - Activo`));
+// 4. RUTAS API Y SERVIDOR
+app.get("/api/status", (req, res) => res.json(ultimoEstado));
+app.post("/api/disparar", (req, res) => {
+  DJ();
+  res.json({ success: true });
+});
 
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor iniciado en puerto ${PORT}`);
-  
-  // Primera ejecución a los 5 segundos
+  console.log(`🚀 Servidor en puerto ${PORT}`);
   setTimeout(DJ, 5000);
-  
-  // Repetir cada 15 minutos (ajustable)
   setInterval(DJ, 15 * 60 * 1000);
 });
