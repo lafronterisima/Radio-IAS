@@ -86,36 +86,35 @@ function mezclarAudio() {
   });
 }
 
+// Cambia la URL para que sea limpia
+const AZURA_API = `https://az.azurafree.eu/api/station/42/files`;
+
 async function subirAzura() {
-  if (!fs.existsSync("salida.mp3")) {
-    console.log("❌ No existe salida.mp3 para subir.");
-    return;
-  }
+  if (!fs.existsSync("salida.mp3")) return;
 
   const form = new FormData();
   form.append("file", fs.createReadStream("salida.mp3"));
   form.append("path", "dj_auto.mp3");
 
   try {
-    console.log("🔑 Intentando subir archivo a Estación 24 vía API Key en URL...");
+    console.log("🔑 Enviando con X-API-Key en headers...");
     
     await axios.post(AZURA_API, form, {
       headers: {
         ...form.getHeaders(),
+        // Esta es la forma estándar y más segura de autenticar en AzuraCast
+        "X-API-Key": AZURA_KEY, 
         "User-Agent": "Mozilla/5.0"
-      },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity
+      }
     });
 
-    console.log("✅ ¡POR FIN! Audio subido con éxito a AzuraCast.");
+    console.log("✅ ¡Logrado! Archivo subido correctamente.");
   } catch (err) {
-    console.error("❌ Error de subida persistente.");
-    if (err.response) {
-      console.log("Respuesta de AzuraCast:", JSON.stringify(err.response.data));
-    } else {
-      console.log("Error:", err.message);
+    console.error("❌ Error de subida.");
+    if (err.response && err.response.status === 403) {
+      console.log("Error 403: Revisa que el Token tenga permisos de 'Manage Station Media'.");
     }
+    console.log("Detalle:", err.response?.data || err.message);
   }
 }
 
