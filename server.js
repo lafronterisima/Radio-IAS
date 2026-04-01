@@ -22,7 +22,6 @@ const AZURE_SPEECH_KEY = (process.env.AZURE_SPEECH_KEY || "").trim();
 const AZURE_REGION = (process.env.AZURE_REGION || "").trim();
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${STATION_ID}/files/upload`;
 
-// Estado para el Frontend
 let ultimoEstado = {
   guion: "Esperando inicio de locución...",
   fecha: "--:--",
@@ -64,7 +63,6 @@ async function crearGuion() {
 
     return `Hola, son las ${getHora()} en Colombia. El clima es de ${temp} grados. Estás escuchando a ${artista} con el éxito ${cancion}. En noticias: ${noticias}. Sigue con más música en La Fronterísima.`;
   } catch (e) {
-    console.error("⚠️ Error en guion:", e.message);
     return `Hola, son las ${getHora()}. Estás en sintonía de La Fronterísima, acompañándote con la mejor música siempre.`;
   }
 }
@@ -122,18 +120,16 @@ async function subirAzura() {
 
 // 3. FUNCIÓN MAESTRA DJ
 async function DJ() {
-  console.log(`🎙️ [${new Date().toISOString()}] Iniciando locución...`);
+  console.log(`🎙️ [${new Date().toISOString()}] Ejecutando locución...`);
   ultimoEstado.status = "Procesando...";
   try {
     const guion = await crearGuion();
     ultimoEstado.guion = guion;
-    
     await generarVoz(guion);
     await mezclarAudio();
     await subirAzura();
-    
     ultimoEstado.fecha = new Date().toLocaleTimeString();
-    ultimoEstado.status = "Al aire (Actualizado)";
+    ultimoEstado.status = "Al aire (OK)";
     console.log("✅ Ciclo completado.");
   } catch (error) {
     ultimoEstado.status = "Error: " + error.message;
@@ -141,16 +137,47 @@ async function DJ() {
   }
 }
 
-// 4. RUTAS API Y SERVIDOR
+// 4. RUTAS Y SERVIDOR (Optimizado para Koyeb)
 app.get("/api/status", (req, res) => res.json(ultimoEstado));
+
 app.post("/api/disparar", (req, res) => {
-  DJ();
+  DJ().catch(console.error); // No bloquea la respuesta del servidor
   res.json({ success: true });
 });
 
+// Panel de control embebido (por si falla el archivo index.html)
+app.get("/", (req, res) => {
+    res.send(`
+    <html>
+        <head><title>Fronterisima DJ</title><script src="https://cdn.tailwindcss.com"></script></head>
+        <body class="bg-slate-900 text-white flex items-center justify-center min-h-screen">
+            <div class="p-8 bg-slate-800 rounded-3xl shadow-xl w-full max-w-md border border-slate-700">
+                <h1 class="text-2xl font-bold text-blue-400 mb-4 text-center">LA FRONTERÍSIMA IA</h1>
+                <div class="mb-6 p-4 bg-slate-900 rounded-xl">
+                    <p class="text-xs text-slate-500 uppercase font-bold mb-1">Estado</p>
+                    <p id="st" class="font-mono text-green-400">Cargando...</p>
+                </div>
+                <div class="mb-6">
+                    <p class="text-xs text-slate-500 uppercase font-bold mb-1">Última locución</p>
+                    <p id="gn" class="text-sm italic text-slate-300">--</p>
+                </div>
+                <button onclick="fetch('/api/disparar',{method:'POST'})" class="w-full bg-blue-600 p-4 rounded-xl font-bold hover:bg-blue-500 transition-all">Lanzar Locución Manual</button>
+                <script>
+                    setInterval(async()=>{
+                        const r=await fetch('/api/status');const d=await r.json();
+                        document.getElementById('st').innerText=d.status;
+                        document.getElementById('gn').innerText=d.guion;
+                    },5000);
+                </script>
+            </div>
+        </body>
+    </html>`);
+});
+
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor en puerto ${PORT}`);
-  setTimeout(DJ, 5000);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Servidor activo en puerto ${PORT}`);
+  // Pequeño retraso al inicio para asegurar conectividad
+  setTimeout(DJ, 10000);
   setInterval(DJ, 15 * 60 * 1000);
 });
