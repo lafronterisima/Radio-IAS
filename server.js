@@ -16,7 +16,7 @@ const AZURE_SPEECH_KEY = (process.env.AZURE_SPEECH_KEY || "").trim();
 const AZURE_REGION = (process.env.AZURE_REGION || "").trim();
 
 // URL con la llave integrada para evitar errores de cabecera (403 NotLoggedIn)
-const AZURA_API = `https://az.azurafree.eu/api/station/42/files?api-key=${AZURA_KEY}`;
+const AZURA_API = `https://az.azurafree.eu/api/station/24/files?api-key=${AZURA_KEY}`;
 
 // 1. UTILIDADES
 function getHora() {
