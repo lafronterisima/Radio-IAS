@@ -109,31 +109,29 @@ function mezclarAudio() {
 
 async function subirAzura() {
   if (!fs.existsSync("salida.mp3")) return;
+  
   const form = new FormData();
-  form.append("file", fs.createReadStream("salida.mp3"), { filename: 'dj_auto.mp3', contentType: 'audio/mpeg' });
-  form.append("path", "dj_auto.mp3");
-
-  await axios.post(AZURA_API_UPLOAD, form, {
-    headers: { ...form.getHeaders(), "X-API-Key": AZURA_KEY, "Accept": "application/json" }
+  // El primer parámetro debe ser 'file'
+  form.append("file", fs.createReadStream("salida.mp3"), { 
+    filename: 'dj_auto.mp3', 
+    contentType: 'audio/mpeg' 
   });
-}
+  
+  // PRUEBA ESTO: Deja el path vacío o solo con el nombre
+  form.append("path", "dj_auto.mp3"); 
 
-// 3. FUNCIÓN MAESTRA DJ
-async function DJ() {
-  console.log(`🎙️ [${new Date().toISOString()}] Ejecutando locución...`);
-  ultimoEstado.status = "Procesando...";
   try {
-    const guion = await crearGuion();
-    ultimoEstado.guion = guion;
-    await generarVoz(guion);
-    await mezclarAudio();
-    await subirAzura();
-    ultimoEstado.fecha = new Date().toLocaleTimeString();
-    ultimoEstado.status = "Al aire (OK)";
-    console.log("✅ Ciclo completado.");
-  } catch (error) {
-    ultimoEstado.status = "Error: " + error.message;
-    console.error("⚠️ Fallo:", error.message);
+    const res = await axios.post(AZURA_API_UPLOAD, form, {
+      headers: { 
+        ...form.getHeaders(), 
+        "X-API-Key": AZURA_KEY, 
+        "Accept": "application/json" 
+      }
+    });
+    console.log("✅ Respuesta Azura:", res.data.message || "Subido");
+  } catch (err) {
+    console.error("❌ Error detalle:", err.response?.data || err.message);
+    throw err; // Para que el Dashboard muestre el error real
   }
 }
 
