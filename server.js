@@ -109,29 +109,32 @@ function mezclarAudio() {
 
 async function subirAzura() {
   if (!fs.existsSync("salida.mp3")) return;
-  
-  const form = new FormData();
-  // El primer parámetro debe ser 'file'
-  form.append("file", fs.createReadStream("salida.mp3"), { 
-    filename: 'dj_auto.mp3', 
-    contentType: 'audio/mpeg' 
-  });
-  
-  // PRUEBA ESTO: Deja el path vacío o solo con el nombre
-  form.append("path", "dj_auto.mp3"); 
 
   try {
-    const res = await axios.post(AZURA_API_UPLOAD, form, {
+    // PASO A: Intentar borrar el archivo viejo para que no haya conflictos
+    // Ignoramos el error si no existe
+    await axios.delete(`https://az.azurafree.eu/api/station/${STATION_ID}/file/dj_auto.mp3`, {
+      headers: { "X-API-Key": AZURA_KEY }
+    }).catch(() => {}); 
+
+    // PASO B: Subir el archivo nuevo
+    const form = new FormData();
+    form.append("file", fs.createReadStream("salida.mp3"), { 
+      filename: 'dj_auto.mp3', 
+      contentType: 'audio/mpeg' 
+    });
+    form.append("path", "dj_auto.mp3");
+
+    await axios.post(AZURA_API_UPLOAD, form, {
       headers: { 
         ...form.getHeaders(), 
-        "X-API-Key": AZURA_KEY, 
-        "Accept": "application/json" 
+        "X-API-Key": AZURA_KEY 
       }
     });
-    console.log("✅ Respuesta Azura:", res.data.message || "Subido");
+
+    console.log("✅ Archivo dj_auto.mp3 actualizado en la raíz.");
   } catch (err) {
-    console.error("❌ Error detalle:", err.response?.data || err.message);
-    throw err; // Para que el Dashboard muestre el error real
+    console.error("❌ Error subiendo a Azura:", err.response?.data || err.message);
   }
 }
 
