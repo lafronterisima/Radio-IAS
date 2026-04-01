@@ -126,25 +126,38 @@ async function subirAzura() {
 }
 
 // ======= 3. FUNCIÓN MAESTRA DJ (NUEVA) =======
+// ======= FUNCIÓN MAESTRA DJ (Agrega esto) =======
 async function DJ() {
-  console.log(`🎙️ [${new Date().toISOString()}] Iniciando proceso...`);
-  ultimoEstado.status = "Procesando...";
+  console.log(`🎙️ [${new Date().toISOString()}] Iniciando ciclo de locución...`);
+  ultimoEstado.status = "Procesando locución...";
+  
   try {
+    // 1. Crear el guion con clima y noticias
     const guion = await crearGuion();
     ultimoEstado.guion = guion;
     
+    // 2. Generar el audio con Azure
+    console.log("🔊 Generando voz con Azure...");
     await generarVoz(guion);
+    
+    // 3. Mezclar con fondo musical usando FFmpeg
+    console.log("🎵 Mezclando audio con FFmpeg...");
     await mezclarAudio();
+    
+    // 4. Subir el resultado final a AzuraCast
+    console.log("📤 Subiendo dj_auto.mp3 a AzuraCast...");
     await subirAzura();
     
     ultimoEstado.fecha = getHora();
     ultimoEstado.status = "Al aire (Sincronizado)";
     console.log("✅ Ciclo completado exitosamente.");
+    
   } catch (error) {
     ultimoEstado.status = "Error: " + error.message;
     console.error("❌ Fallo en el ciclo DJ:", error.message);
   }
 }
+// ================================================
 
 // 4. RUTAS Y SERVIDOR
 app.get("/api/status", (req, res) => res.json(ultimoEstado));
