@@ -72,22 +72,34 @@ function mezclarAudio() {
 
 async function subirAzura() {
   if (!fs.existsSync("salida.mp3")) return;
+  
   const form = new FormData();
-  form.append("path", "dj_auto.mp3");
+  // El archivo debe ir primero en algunas versiones de la API
   form.append("file", fs.createReadStream("salida.mp3"));
+  form.append("path", "dj_auto.mp3");
 
   try {
+    console.log("🔑 Enviando petición con API Key...");
+    
     await axios.post(AZURA_API, form, {
       headers: { 
-        ...form.getHeaders(), 
-        "X-API-Key": AZURA_KEY,
-        // ESTO ES CLAVE: Disfrazamos la petición
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      }
+        "X-API-Key": AZURA_KEY, // La llave va aquí
+        "Authorization": `Bearer ${AZURA_KEY}`, // Refuerzo: Algunos servidores prefieren Bearer
+        ...form.getHeaders() // Esto pone el Content-Type correcto automáticamente
+      },
+      // Esto evita que axios falle por redirecciones extrañas
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
     });
-    console.log("✅ ¡POR FIN! Audio subido a la estación 24");
+
+    console.log("✅ ¡LOGRADO! Audio subido a la estación 24");
   } catch (err) {
-    console.error("❌ Error 403 detallado:", err.response?.data || err.message);
+    if (err.response) {
+      console.error("❌ Error del servidor (Status):", err.response.status);
+      console.error("❌ Mensaje de AzuraCast:", JSON.stringify(err.response.data, null, 2));
+    } else {
+      console.error("❌ Error de conexión:", err.message);
+    }
   }
 }
 
