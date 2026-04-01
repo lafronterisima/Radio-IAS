@@ -11,7 +11,6 @@ require('dotenv').config();
 const app = express();
 const parser = new Parser();
 
-// Middleware
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -108,82 +107,69 @@ function mezclarAudio() {
 }
 
 async function subirAzura() {
-  if (!fs.existsSync("salida.mp3")) {
-    console.error("❌ El archivo salida.mp3 no existe localmente.");
-    return;
-  }
+  if (!fs.existsSync("salida.mp3")) throw new Error("Archivo salida.mp3 no encontrado");
 
-  // Según tu documento, el endpoint correcto es:
-  // POST /station/{station_id}/files/upload
-  const UPLOAD_URL = `https://az.azurafree.eu/api/station/${STATION_ID}/files/upload`;
+  const form = new FormData();
+  form.append("file", fs.createReadStream("salida.mp3"), { 
+    filename: 'dj_auto.mp3', 
+    contentType: 'audio/mpeg' 
+  });
+  form.append("path", "dj_auto.mp3");
 
+  await axios.post(AZURA_API_UPLOAD, form, {
+    headers: { 
+      ...form.getHeaders(), 
+      "X-API-Key": AZURA_KEY,
+      "Accept": "application/json"
+    }
+  });
+}
+
+// ======= 3. FUNCIÓN MAESTRA DJ (NUEVA) =======
+async function DJ() {
+  console.log(`🎙️ [${new Date().toISOString()}] Iniciando proceso...`);
+  ultimoEstado.status = "Procesando...";
   try {
-    const form = new FormData();
+    const guion = await crearGuion();
+    ultimoEstado.guion = guion;
     
-    // IMPORTANTE: El documento dice que recibe el archivo y opcionalmente el path.
-    // Usaremos 'file' como nombre del campo.
-    form.append("file", fs.createReadStream("salida.mp3"), { 
-      filename: 'dj_auto.mp3', 
-      contentType: 'audio/mpeg' 
-    });
-
-    // Indicamos que el destino en la radio es el nombre del archivo
-    form.append("path", "dj_auto.mp3");
-
-    console.log(`📤 Subiendo a AzuraCast (Estación ${STATION_ID})...`);
-
-    const response = await axios.post(UPLOAD_URL, form, {
-      headers: { 
-        ...form.getHeaders(), 
-        "X-API-Key": AZURA_KEY,
-        "Accept": "application/json"
-      }
-    });
-
-    // Si la respuesta es exitosa (200), AzuraCast devuelve los datos del archivo
-    if (response.status === 200) {
-      console.log("✅ ¡Subida exitosa! El archivo dj_auto.mp3 ya está en AzuraCast.");
-      ultimoEstado.status = "Al aire (Sincronizado)";
-    }
-  } catch (err) {
-    // Capturamos el error específico de la API para saber qué falló
-    const errorMsg = err.response?.data?.message || err.message;
-    console.error("❌ Error en la subida a AzuraCast:", errorMsg);
+    await generarVoz(guion);
+    await mezclarAudio();
+    await subirAzura();
     
-    if (err.response?.status === 403) {
-      console.error("👉 Revisa tu API KEY. Parece que no tienes permisos de 'Manage Station Media'.");
-    }
-    
-    ultimoEstado.status = "Error subida: " + errorMsg;
-    throw err;
+    ultimoEstado.fecha = getHora();
+    ultimoEstado.status = "Al aire (Sincronizado)";
+    console.log("✅ Ciclo completado exitosamente.");
+  } catch (error) {
+    ultimoEstado.status = "Error: " + error.message;
+    console.error("❌ Fallo en el ciclo DJ:", error.message);
   }
 }
 
-// 4. RUTAS Y SERVIDOR (Optimizado para Koyeb)
+// 4. RUTAS Y SERVIDOR
 app.get("/api/status", (req, res) => res.json(ultimoEstado));
 
 app.post("/api/disparar", (req, res) => {
-  DJ().catch(console.error); // No bloquea la respuesta del servidor
+  DJ().catch(console.error);
   res.json({ success: true });
 });
 
-// Panel de control embebido (por si falla el archivo index.html)
 app.get("/", (req, res) => {
     res.send(`
     <html>
         <head><title>Fronterisima DJ</title><script src="https://cdn.tailwindcss.com"></script></head>
         <body class="bg-slate-900 text-white flex items-center justify-center min-h-screen">
             <div class="p-8 bg-slate-800 rounded-3xl shadow-xl w-full max-w-md border border-slate-700">
-                <h1 class="text-2xl font-bold text-blue-400 mb-4 text-center">LA FRONTERÍSIMA IA</h1>
+                <h1 class="text-2xl font-bold text-blue-400 mb-4 text-center tracking-tighter">LA FRONTERÍSIMA IA</h1>
                 <div class="mb-6 p-4 bg-slate-900 rounded-xl">
                     <p class="text-xs text-slate-500 uppercase font-bold mb-1">Estado</p>
-                    <p id="st" class="font-mono text-green-400">Cargando...</p>
+                    <p id="st" class="font-mono text-green-400">${ultimoEstado.status}</p>
                 </div>
                 <div class="mb-6">
                     <p class="text-xs text-slate-500 uppercase font-bold mb-1">Última locución</p>
-                    <p id="gn" class="text-sm italic text-slate-300">--</p>
+                    <p id="gn" class="text-sm italic text-slate-300">${ultimoEstado.guion}</p>
                 </div>
-                <button onclick="fetch('/api/disparar',{method:'POST'})" class="w-full bg-blue-600 p-4 rounded-xl font-bold hover:bg-blue-500 transition-all">Lanzar Locución Manual</button>
+                <button onclick="fetch('/api/disparar',{method:'POST'}); this.innerText='Procesando...'; setTimeout(()=>this.innerText='Lanzar Locución Manual', 5000)" class="w-full bg-blue-600 p-4 rounded-xl font-bold hover:bg-blue-500 transition-all">Lanzar Locución Manual</button>
                 <script>
                     setInterval(async()=>{
                         const r=await fetch('/api/status');const d=await r.json();
@@ -199,7 +185,6 @@ app.get("/", (req, res) => {
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Servidor activo en puerto ${PORT}`);
-  // Pequeño retraso al inicio para asegurar conectividad
-  setTimeout(DJ, 10000);
-  setInterval(DJ, 15 * 60 * 1000);
+  setTimeout(DJ, 5000); // Primera ejecución a los 5 segundos
+  setInterval(DJ, 15 * 60 * 1000); // Ciclo cada 15 min
 });
