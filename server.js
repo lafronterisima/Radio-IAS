@@ -73,16 +73,21 @@ function mezclarAudio() {
 async function subirAzura() {
   if (!fs.existsSync("salida.mp3")) return;
   const form = new FormData();
-  form.append("path", "dj_auto.mp3"); // Directo a la raíz
+  form.append("path", "dj_auto.mp3");
   form.append("file", fs.createReadStream("salida.mp3"));
 
   try {
     await axios.post(AZURA_API, form, {
-      headers: { ...form.getHeaders(), "X-API-Key": AZURA_KEY }
+      headers: { 
+        ...form.getHeaders(), 
+        "X-API-Key": AZURA_KEY,
+        // ESTO ES CLAVE: Disfrazamos la petición
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      }
     });
-    console.log("✅ Audio subido a la estación 24");
+    console.log("✅ ¡POR FIN! Audio subido a la estación 24");
   } catch (err) {
-    console.error("❌ Error 403: Revisa tu API Key en AzuraCast Estación 24");
+    console.error("❌ Error 403 detallado:", err.response?.data || err.message);
   }
 }
 
