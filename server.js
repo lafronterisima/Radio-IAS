@@ -108,33 +108,54 @@ function mezclarAudio() {
 }
 
 async function subirAzura() {
-  if (!fs.existsSync("salida.mp3")) return;
+  if (!fs.existsSync("salida.mp3")) {
+    console.error("❌ El archivo salida.mp3 no existe localmente.");
+    return;
+  }
+
+  // Según tu documento, el endpoint correcto es:
+  // POST /station/{station_id}/files/upload
+  const UPLOAD_URL = `https://az.azurafree.eu/api/station/${STATION_ID}/files/upload`;
 
   try {
-    // PASO A: Intentar borrar el archivo viejo para que no haya conflictos
-    // Ignoramos el error si no existe
-    await axios.delete(`https://az.azurafree.eu/api/station/${STATION_ID}/file/dj_auto.mp3`, {
-      headers: { "X-API-Key": AZURA_KEY }
-    }).catch(() => {}); 
-
-    // PASO B: Subir el archivo nuevo
     const form = new FormData();
+    
+    // IMPORTANTE: El documento dice que recibe el archivo y opcionalmente el path.
+    // Usaremos 'file' como nombre del campo.
     form.append("file", fs.createReadStream("salida.mp3"), { 
       filename: 'dj_auto.mp3', 
       contentType: 'audio/mpeg' 
     });
+
+    // Indicamos que el destino en la radio es el nombre del archivo
     form.append("path", "dj_auto.mp3");
 
-    await axios.post(AZURA_API_UPLOAD, form, {
+    console.log(`📤 Subiendo a AzuraCast (Estación ${STATION_ID})...`);
+
+    const response = await axios.post(UPLOAD_URL, form, {
       headers: { 
         ...form.getHeaders(), 
-        "X-API-Key": AZURA_KEY 
+        "X-API-Key": AZURA_KEY,
+        "Accept": "application/json"
       }
     });
 
-    console.log("✅ Archivo dj_auto.mp3 actualizado en la raíz.");
+    // Si la respuesta es exitosa (200), AzuraCast devuelve los datos del archivo
+    if (response.status === 200) {
+      console.log("✅ ¡Subida exitosa! El archivo dj_auto.mp3 ya está en AzuraCast.");
+      ultimoEstado.status = "Al aire (Sincronizado)";
+    }
   } catch (err) {
-    console.error("❌ Error subiendo a Azura:", err.response?.data || err.message);
+    // Capturamos el error específico de la API para saber qué falló
+    const errorMsg = err.response?.data?.message || err.message;
+    console.error("❌ Error en la subida a AzuraCast:", errorMsg);
+    
+    if (err.response?.status === 403) {
+      console.error("👉 Revisa tu API KEY. Parece que no tienes permisos de 'Manage Station Media'.");
+    }
+    
+    ultimoEstado.status = "Error subida: " + errorMsg;
+    throw err;
   }
 }
 
