@@ -62,7 +62,7 @@ async function crearGuion() {
     const feed = await parser.parseURL('https://feeds.bbci.co.uk/mundo/rss.xml');
     const noticias = feed.items.slice(0, 2).map(i => i.title.split(" - ")[0]).join(". ");
 
-    return `Hola, son las ${getHora()} en Colombia. El clima en Cali es de ${temp} grados. Estás escuchando a ${artista} con el éxito ${cancion}. En noticias: ${noticias}. Sigue con más música en La Fronterísima.`;
+    return `Hola, son las ${getHora()} en Colombia. El clima es de ${temp} grados. Estás escuchando a ${artista} con el éxito ${cancion}. En noticias: ${noticias}. Sigue con más música en La Fronterísima.`;
   } catch (e) {
     console.error("⚠️ Error en guion:", e.message);
     return `Hola, son las ${getHora()}. Estás en sintonía de La Fronterísima, acompañándote con la mejor música siempre.`;
