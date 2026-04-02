@@ -1,5 +1,5 @@
 
-   require('dotenv').config();
+        require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
@@ -178,4 +178,4 @@ app.listen(PORT, () => {
     console.log(`🚀 La Fronterísima activa en el puerto ${PORT}`);
     // Lanzar primer reporte a los 10 segundos de iniciar para asegurar conexión
     setTimeout(tick, 10000);
-});             
+});     
