@@ -19,7 +19,7 @@ const API_KEY_GEMINI = process.env.GOOGLE_API_KEY;
 const AZURA_KEY = process.env.AZURA_KEY;
 const AZURE_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_REGION = process.env.AZURE_REGION;
-const STATION_ID = "42"; // ¡Verifica que este sea tu ID en Azura!
+const STATION_ID = "24"; // ¡Verifica que este sea tu ID en Azura!
 const AZURA_API_URL = `https://az.azurafree.eu/api/station/${STATION_ID}/files`;
 
 // Ruta para el Health Check del hosting
