@@ -19,7 +19,7 @@ const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const AZURA_KEY = process.env.AZURA_KEY;
 const AZURE_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_REGION = process.env.AZURE_REGION;
-const STATION_ID = "42"; 
+const STATION_ID = "24"; 
 const AZURA_API = `https://az.azurafree.eu/api/station/${STATION_ID}/files`;
 
 // --- 1. OBTENER DATOS ---
