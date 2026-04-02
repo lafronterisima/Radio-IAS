@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
@@ -6,66 +7,75 @@ const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
 const Parser = require('rss-parser');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
 app.use(express.json());
 app.use(express.static('public'));
 
 const parser = new Parser();
-// Forzamos la configuración de la API Key
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
+// ======= CONFIGURACIÓN =======
+const API_KEY_GEMINI = process.env.GOOGLE_API_KEY;
 const AZURA_KEY = process.env.AZURA_KEY;
 const AZURE_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_REGION = process.env.AZURE_REGION;
-const STATION_ID = "24"; 
-const AZURA_API = `https://az.azurafree.eu/api/station/${STATION_ID}/files`;
+const STATION_ID = "42"; // ¡Verifica que este sea tu ID en Azura!
+const AZURA_API_URL = `https://az.azurafree.eu/api/station/${STATION_ID}/files`;
 
-// --- 1. OBTENER DATOS ---
-async function obtenerDatos() {
+// Ruta para el Health Check del hosting
+app.get('/', (req, res) => res.send("🎙️ La Fronterísima AI está operando correctamente."));
+
+// --- 1. OBTENER DATOS (CLIMA Y NOTICIAS) ---
+async function obtenerContexto() {
     try {
-        const ahora = new Date().toLocaleTimeString("es-CO", { 
-            timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' 
-        });
-        const weather = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
-        const rss = await parser.parseURL('https://feeds.bbci.co.uk/mundo/rss.xml');
-        return { hora: ahora, temp: Math.round(weather.data.current_weather.temperature), noticia: rss.items[0].title };
+        const ahora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' });
+        const clima = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
+        const noticias = await parser.parseURL('https://feeds.bbci.co.uk/mundo/rss.xml');
+        
+        return {
+            hora: ahora,
+            temp: Math.round(clima.data.current_weather.temperature),
+            titular: noticias.items[0].title
+        };
     } catch (e) {
-        return { hora: "ahora", temp: "24", noticia: "Sigue la música en La Fronterísima." };
+        return { hora: "al momento", temp: "24", titular: "Sigue la mejor programación." };
     }
 }
 
-// --- 2. REDACTAR CON GEMINI (SOLUCIÓN DEFINITIVA AL 404) ---
-async function redactarGuion(idea, datos = null) {
+// --- 2. REDACTAR CON GEMINI (VÍA REST DIRECTO - EVITA EL 404) ---
+async function redactarIA(idea, datos = null) {
     try {
-        // Usamos la versión 'v1' explícitamente para evitar el error v1beta
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }, { apiVersion: 'v1' });
+        const prompt = datos 
+            ? `Eres locutor de "La Fronterísima" en Cali. Datos: Hora ${datos.hora}, Temp ${datos.temp}°C, Noticia: ${datos.titular}. Redacta un guion corto y profesional con el eslogan "Notas surcando fronteras". Solo el texto.`
+            : `Eres locutor de "La Fronterísima". Idea: ${idea}. Eslogan: "Notas surcando fronteras". Redacta un guion dinámico. Solo el texto.`;
 
-        let promptText = `Eres locutor de "La Fronterísima" en Cali. Eslogan: "Notas surcando fronteras". `;
-        if (datos) {
-            promptText += `Reporte: Hora ${datos.hora}, Temp ${datos.temp}°C, Noticia: ${datos.noticia}. Redacta un guion corto y profesional. Solo texto.`;
-        } else {
-            promptText += `Idea: ${idea}. Redacta un guion dinámico para locutor neutro. Solo texto.`;
-        }
+        // Usamos la URL de la API estable de Google
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${API_KEY_GEMINI}`;
+        
+        const response = await axios.post(url, {
+            contents: [{ parts: [{ text: prompt }] }]
+        });
 
-        const result = await model.generateContent(promptText);
-        const response = await result.response;
-        return response.text().trim();
+        return response.data.candidates[0].content.parts[0].text.trim();
     } catch (error) {
-        console.error("❌ Fallo en Gemini:", error.message);
-        return "Son las notas que surcan fronteras. Estás en sintonía con La Fronterísima, la radio que te acompaña en Cali.";
+        console.error("❌ Error en Gemini API:", error.response?.data || error.message);
+        return "Estás en sintonía con La Fronterísima, notas surcando fronteras. La radio que te acompaña en Cali.";
     }
 }
 
-// --- 3. GENERAR VOZ ---
-async function generarAudioVoz(texto) {
+// --- 3. GENERAR VOZ (AZURE GONZALO) ---
+async function generarVoz(texto) {
     return new Promise((resolve, reject) => {
         const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
         speechConfig.speechSynthesisVoiceName = "es-CO-GonzaloNeural";
         const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
 
-        const ssml = `<speak version="1.0" xml:lang="es-CO"><voice name="es-CO-GonzaloNeural"><prosody pitch="low" rate="0.95">${texto}</prosody></voice></speak>`;
+        const ssml = `
+            <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
+                <voice name="es-CO-GonzaloNeural">
+                    <prosody rate="0.95" pitch="low">${texto}</prosody>
+                </voice>
+            </speak>`;
 
         synthesizer.speakSsmlAsync(ssml, result => {
             if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
@@ -74,72 +84,75 @@ async function generarAudioVoz(texto) {
                 resolve();
             } else {
                 synthesizer.close();
-                reject(result.errorDetails);
+                reject("Error en Azure Speech");
             }
-        }, err => { synthesizer.close(); reject(err); });
+        }, err => reject(err));
     });
 }
 
-// --- 4. MEZCLAR Y SUBIR ---
-async function mezclarYSubir(nombreFinal, conFondo) {
+// --- 4. PROCESAR Y SUBIR ---
+async function producirYSubir(nombreArchivo, conFondo) {
     return new Promise((resolve, reject) => {
-        // Aseguramos que el archivo de voz exista antes de mezclar
-        if (!fs.existsSync("voz_temp.mp3")) return reject("No existe archivo de voz");
-
         const comando = (conFondo && fs.existsSync("fondo.mp3"))
-            ? `ffmpeg -y -i fondo.mp3 -i voz_temp.mp3 -filter_complex "[0:a]volume=0.2[bg];[1:a]volume=1.3[v];[bg][v]sidechaincompress=threshold=0.1:ratio=20[out]" -map "[out]" -shortest -c:a libmp3lame -b:a 128k salida_final.mp3`
-            : `ffmpeg -y -i voz_temp.mp3 -c:a libmp3lame -b:a 128k salida_final.mp3`;
+            ? `ffmpeg -y -i fondo.mp3 -i voz_temp.mp3 -filter_complex "[0:a]volume=0.2[bg];[1:a]volume=1.3[v];[bg][v]sidechaincompress=threshold=0.1:ratio=20[out]" -map "[out]" -shortest -c:a libmp3lame -b:a 128k salida.mp3`
+            : `ffmpeg -y -i voz_temp.mp3 -c:a libmp3lame -b:a 128k salida.mp3`;
 
         exec(comando, async (err) => {
-            if (err) return reject(err);
+            if (err) return reject("Fallo FFmpeg");
 
             try {
                 const form = new FormData();
-                form.append("file", fs.createReadStream("salida_final.mp3"));
-                form.append("path", nombreFinal);
+                form.append("file", fs.createReadStream("salida.mp3"));
+                form.append("path", nombreArchivo);
 
-                await axios.post(AZURA_API, form, {
+                await axios.post(AZURA_API_URL, form, {
                     headers: { ...form.getHeaders(), "X-API-Key": AZURA_KEY }
                 });
                 resolve();
             } catch (e) {
-                reject("Error Azura subida: " + e.message);
+                reject("Error al subir a AzuraCast: " + e.message);
             }
         });
     });
 }
 
-// --- ENDPOINTS ---
+// ======= ENDPOINTS =======
+
 app.post("/redactar-guion", async (req, res) => {
-    const guion = await redactarGuion(req.body.idea);
-    res.json({ guion });
+    const texto = await redactarIA(req.body.idea);
+    res.json({ guion: texto });
 });
 
 app.post("/procesar-locucion", async (req, res) => {
     try {
-        await generarAudioVoz(req.body.texto);
-        await mezclarYSubir(req.body.nombreArchivo, req.body.conFondo);
-        res.send("✅ Ok");
-    } catch (e) { res.status(500).send(e.toString()); }
+        await generarVoz(req.body.texto);
+        await producirYSubir(req.body.nombreArchivo || "manual.mp3", req.body.conFondo);
+        res.send("✅ Éxito");
+    } catch (e) {
+        res.status(500).send(e.toString());
+    }
 });
 
-// --- AUTOMATIZACIÓN ---
-async function tickAutomatico() {
+// ======= AUTOMATIZACIÓN (CADA 15 MINUTOS) =======
+
+async function tick() {
     console.log(`🎙️ [${new Date().toLocaleTimeString()}] Iniciando reporte...`);
     try {
-        const datos = await obtenerDatos();
-        const guion = await redactarGuion(null, datos);
-        await generarAudioVoz(guion);
-        await mezclarYSubir("dj_auto.mp3", true);
-        console.log("✅ Éxito en reporte de 15 min.");
-    } catch (error) {
-        console.error("⚠️ Fallo tick:", error);
+        const datos = await obtenerContexto();
+        const guion = await redactarIA(null, datos);
+        await generarVoz(guion);
+        await producirYSubir("dj_auto.mp3", true);
+        console.log("✅ Reporte de 15 min actualizado.");
+    } catch (e) {
+        console.error("⚠️ Error en el tick:", e);
     }
 }
 
-setInterval(tickAutomatico, 15 * 60 * 1000);
+setInterval(tick, 15 * 60 * 1000);
+
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
-    console.log(`🚀 La Fronterísima AI activa en puerto ${PORT}`);
-    setTimeout(tickAutomatico, 5000); // Primer reporte a los 5 segundos
+    console.log(`🚀 La Fronterísima activa en el puerto ${PORT}`);
+    // Lanzar primer reporte a los 5 segundos de iniciar
+    setTimeout(tick, 5000);
 });
