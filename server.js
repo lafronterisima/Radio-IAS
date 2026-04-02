@@ -1,189 +1,101 @@
  
-const express = require("express");
+      require('dotenv').config();
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
-const FormData = require("form-data");
 const { exec } = require("child_process");
 const Parser = require('rss-parser');
-require('dotenv').config();
+const { GoogleGenerativeAI } = require("@google/generative-ai");
+const FormData = require("form-data");
 
-const app = express();
 const parser = new Parser();
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
-// ======= CONFIGURACIÓN =======
-const AZURA_KEY = (process.env.AZURA_KEY || "").trim();
-const AZURE_SPEECH_KEY = (process.env.AZURE_SPEECH_KEY || "").trim();
-const AZURE_REGION = (process.env.AZURE_REGION || "").trim();
-const STATION_ID = "42"; // Tu ID de estación
-const AZURA_BASE_URL = `https://az.azurafree.eu/api/station/${STATION_ID}`;
+// Configuración de Estación
+const STATION_ID = "42"; 
+const AZURA_API = `https://az.azurafree.eu/api/station/${STATION_ID}/files`;
 
-// Memoria temporal para noticias
-let noticiasLeidas = [];
-
-// 1. UTILIDADES
-function getHora() {
-  return new Date().toLocaleTimeString("es-CO", {
-    timeZone: "America/Bogota",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true
-  });
+// --- 1. OBTENER DATOS REALES ---
+async function obtenerDatos() {
+    try {
+        // Hora, Clima de Cali y Noticias BBC
+        const ahora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' });
+        const weather = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
+        const rss = await parser.parseURL('https://feeds.bbci.co.uk/mundo/rss.xml');
+        
+        return {
+            hora: ahora,
+            temp: Math.round(weather.data.current_weather.temperature),
+            noticia: rss.items[0].title
+        };
+    } catch (e) {
+        return { hora: "al momento", temp: "agradable", noticia: "Sigue la mejor música." };
+    }
 }
 
-function getSaludo() {
-  const frases = [
-    "¡Qué tal familia! Acompañándolos en La Fronterísima.",
-    "Sintonía total a esta hora en todo el país.",
-    "Hola qué tal, aquí reportándonos en vivo para ustedes.",
-    "¡Suban el volumen! Estamos en la mejor compañía musical."
-  ];
-  return frases[Math.floor(Math.random() * frases.length)];
+// --- 2. REDACTAR CON GEMINI ---
+async function redactarLocucion(datos) {
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const prompt = `Eres el locutor estrella de "La Fronterísima" en Cali. 
+    Datos actuales: Hora ${datos.hora}, Temperatura ${datos.temp}°C, Noticia: ${datos.noticia}.
+    Redacta un guion corto, dinámico y con sabor colombiano (neutro-profesional). 
+    Usa el eslogan "Notas surcando fronteras". Entrega solo el texto.`;
+
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
 }
 
-// 2. FUNCIONES DE PROCESAMIENTO
-async function obtenerNoticias() {
-  try {
-    const feed = await parser.parseURL('https://feeds.bbci.co.uk/mundo/rss.xml');
-    const nuevas = feed.items
-      .map(i => i.title)
-      .filter(t => !noticiasLeidas.includes(t));
+// --- 3. GENERAR VOZ (GONZALO NEUTRAL) ---
+async function crearAudio(texto) {
+    return new Promise((resolve, reject) => {
+        const speechConfig = sdk.SpeechConfig.fromSubscription(process.env.AZURE_SPEECH_KEY, process.env.AZURE_REGION);
+        speechConfig.speechSynthesisVoiceName = "es-CO-GonzaloNeural";
+        const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
 
-    const seleccionadas = nuevas.slice(0, 2);
-    // Mantener historial de las últimas 15 noticias
-    noticiasLeidas = [...seleccionadas, ...noticiasLeidas].slice(0, 15);
+        const ssml = `<speak version="1.0" xml:lang="es-CO"><voice name="es-CO-GonzaloNeural"><prosody pitch="low">${texto}</prosody></voice></speak>`;
+
+        synthesizer.speakSsmlAsync(ssml, result => {
+            if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+                fs.writeFileSync("temp_voz.mp3", Buffer.from(result.audioData));
+                synthesizer.close();
+                resolve();
+            } else { reject(result.errorDetails); }
+        }, err => reject(err));
+    });
+}
+
+// --- 4. MEZCLA Y SUBIDA ---
+async function procesarYSubir() {
+    console.log("🎙️ Iniciando locución automática de los 15 minutos...");
     
-    return seleccionadas.length > 0 
-      ? `En noticias: ${seleccionadas.join(". ")}.` 
-      : "Sigue disfrutando de nuestra programación especial.";
-  } catch (e) {
-    return "Mantente informado con nosotros minuto a minuto.";
-  }
-}
+    const datos = await obtenerDatos();
+    const guion = await redactarLocucion(datos);
+    console.log(`📝 Guion: ${guion}`);
 
-async function crearGuion() {
-  try {
-    const [songRes, weatherRes] = await Promise.all([
-      axios.get(`https://az.azurafree.eu/api/nowplaying/${STATION_ID}`),
-      axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true")
-    ]);
+    await crearAudio(guion);
 
-    const artista = songRes.data.now_playing?.song?.artist || "tus artistas favoritos";
-    const cancion = songRes.data.now_playing?.song?.title || "grandes éxitos";
-    const temp = Math.round(weatherRes.data.current_weather.temperature);
-    const noticias = await obtenerNoticias();
+    // FFmpeg para poner fondo y subir
+    const comando = `ffmpeg -y -i fondo.mp3 -i temp_voz.mp3 -filter_complex "[0:a]volume=0.2[bg];[1:a]volume=1.3[v];[bg][v]sidechaincompress=threshold=0.1:ratio=20[out]" -map "[out]" -shortest -c:a libmp3lame -b:a 128k dj_auto.mp3`;
 
-    return `${getSaludo()} Son las ${getHora()} en Colombia. La temperatura en Cali es de ${temp} grados. Acabamos de escuchar a ${artista} con el éxito titulado ${cancion}. ${noticias} Quédate con nosotros en La Fronterísima.`;
-  } catch (e) {
-    console.error("⚠️ Error en guion:", e.message);
-    return `Hola, son las ${getHora()}. Estás en sintonía de La Fronterísima, acompañándote con la mejor música siempre.`;
-  }
-}
+    exec(comando, async (err) => {
+        if (err) return console.error("Error FFmpeg", err);
+        
+        // Subir a AzuraCast
+        const form = new FormData();
+        form.append("file", fs.createReadStream("dj_auto.mp3"));
+        form.append("path", "dj_auto.mp3");
 
-async function generarVoz(texto) {
-  return new Promise((resolve, reject) => {
-    if (!AZURE_SPEECH_KEY || !AZURE_REGION) return reject("Faltan llaves de Azure");
-
-    const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_SPEECH_KEY, AZURE_REGION);
-    const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
-
-    // Usamos SSML para mejorar la entonación y pausas
-    const ssml = `
-      <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
-        <voice name="es-CO-SalomeNeural">
-          <prosody rate="medium" pitch="default">
-            ${texto}
-          </prosody>
-          <break time="800ms" />
-        </voice>
-      </speak>`;
-
-    synthesizer.speakSsmlAsync(ssml, result => {
-      if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-        fs.writeFileSync("voz.mp3", Buffer.from(result.audioData));
-        synthesizer.close();
-        resolve();
-      } else {
-        synthesizer.close();
-        reject("Error Azure: " + result.errorDetails);
-      }
-    }, err => {
-      synthesizer.close();
-      reject(err);
+        try {
+            await axios.post(AZURA_API, form, {
+                headers: { ...form.getHeaders(), "X-API-Key": process.env.AZURA_KEY }
+            });
+            console.log("✅ Reporte actualizado en AzuraCast.");
+        } catch (e) { console.error("Error subida", e.message); }
     });
-  });
 }
 
-function mezclarAudio() {
-  return new Promise((resolve, reject) => {
-    // Si existe fondo.mp3, hace ducking (baja volumen al fondo mientras suena la voz)
-    // El flag -shortest asegura que el audio termine cuando acabe la locución
-    const comando = fs.existsSync("fondo.mp3") 
-      ? `ffmpeg -y -i fondo.mp3 -i voz.mp3 -filter_complex "[0:a]volume=0.3[bg];[1:a]volume=1.2[v];[bg][v]sidechaincompress=threshold=0.1:ratio=20[out]" -map "[out]" -shortest -c:a libmp3lame -b:a 128k salida.mp3`
-      : `ffmpeg -y -i voz.mp3 -c:a libmp3lame -b:a 128k salida.mp3`;
+// --- EJECUCIÓN CADA 15 MINUTOS ---
+setInterval(procesarYSubir, 15 * 60 * 1000); 
 
-    exec(comando, (err) => {
-      if (err) reject("Error FFmpeg: " + err);
-      else resolve();
-    });
-  });
-}
-
-async function subirAzura() {
-  if (!fs.existsSync("salida.mp3")) return;
-
-  const form = new FormData();
-  form.append("file", fs.createReadStream("salida.mp3"));
-  form.append("path", "dj_auto.mp3"); // Nombre del archivo en el servidor
-
-  try {
-    await axios.post(`${AZURA_BASE_URL}/files`, form, {
-      headers: {
-        ...form.getHeaders(),
-        "X-API-Key": AZURA_KEY
-      }
-    });
-    console.log("✅ Audio subido con éxito a AzuraCast.");
-  } catch (err) {
-    console.error("❌ Error de subida:", err.response?.data || err.message);
-  }
-}
-
-// 3. FUNCIÓN MAESTRA DJ
-async function DJ() {
-  console.log(`\n🎙️ [${new Date().toLocaleTimeString()}] Iniciando locución...`);
-  try {
-    const guion = await crearGuion();
-    console.log("📝 Guion:", guion);
-
-    await generarVoz(guion);
-    console.log("🔊 Voz generada.");
-
-    await mezclarAudio();
-    console.log("🎚️ Mezcla finalizada.");
-
-    await subirAzura();
-  } catch (error) {
-    console.error("⚠️ Fallo en el proceso DJ:", error);
-  }
-}
-
-// 4. SERVIDOR EXPRESS
-app.get("/", (req, res) => res.send("🎧 DJ IA Fronterísima - Activo y Operando"));
-
-// Forzar ejecución manual si es necesario
-app.get("/trigger", async (req, res) => {
-    await DJ();
-    res.send("Locución disparada manualmente.");
-});
-
-const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor en puerto ${PORT}`);
-  
-  // Primera ejecución a los 10 segundos del arranque
-  setTimeout(DJ, 10000);
-  
-  // Ciclo cada 15 minutos
-  setInterval(DJ, 15 * 60 * 1000);
-});
+// Ejecutar por primera vez al iniciar el script
+procesarYSubir();
