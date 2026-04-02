@@ -3,83 +3,268 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard DJ IA - La Fronterísima</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <title>Panel de Control | La Fronterísima</title>
     <style>
-        body { background-color: #0f172a; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
-        .pulse { animation: pulse-blue 2s infinite; }
-        @keyframes pulse-blue { 0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); } 70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); } 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); } }
+        :root {
+            --blue-brand: #4A86E8;
+            --dark-bg: #0f0f0f;
+            --card-bg: #1a1a1a;
+            --text-main: #ffffff;
+            --text-dim: #a0a0a0;
+            --accent-green: #4ecca3;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            padding: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-top: 6px solid var(--blue-brand);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 2.2em;
+            letter-spacing: 1px;
+            color: var(--blue-brand);
+            text-transform: uppercase;
+        }
+
+        .header p {
+            margin: 5px 0 0;
+            color: var(--text-dim);
+            font-style: italic;
+            font-size: 1.1em;
+        }
+
+        .section-label {
+            display: block;
+            margin: 20px 0 8px;
+            font-weight: 600;
+            color: var(--blue-brand);
+            font-size: 0.9em;
+            text-transform: uppercase;
+        }
+
+        input[type="text"], textarea {
+            width: 100%;
+            background: #252525;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            color: white;
+            font-size: 1em;
+            box-sizing: border-box;
+            transition: border 0.3s;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--blue-brand);
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn {
+            border: none;
+            border-radius: 8px;
+            padding: 12px 20px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .btn-ai {
+            background: #5851db;
+            color: white;
+            flex: 1;
+        }
+
+        .btn-ai:hover { background: #4740b3; }
+
+        .btn-main {
+            background: var(--accent-green);
+            color: #000;
+            width: 100%;
+            font-size: 1.1em;
+            margin-top: 20px;
+            padding: 15px;
+        }
+
+        .btn-main:hover {
+            background: #3eb38f;
+            transform: translateY(-2px);
+        }
+
+        .options {
+            margin-top: 15px;
+            display: flex;
+            align-items: center;
+            font-size: 0.9em;
+            color: var(--text-dim);
+        }
+
+        .options input { margin-right: 10px; }
+
+        #status-box {
+            margin-top: 25px;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 0.9em;
+            display: none;
+        }
+
+        .status-loading { background: #2c3e50; color: #ecf0f1; display: block !important; }
+        .status-success { background: #1b4332; color: #95d5b2; display: block !important; }
+        .status-error { background: #431b1b; color: #d59595; display: block !important; }
+
+        .footer-info {
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8em;
+            color: #555;
+        }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-6">
-    <div class="max-w-xl w-full space-y-8">
-        <div class="text-center space-y-2">
-            <h1 class="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
-                FRONTERÍSIMA
-            </h1>
-            <p class="text-slate-400 font-medium tracking-[0.2em] text-xs uppercase">AI Broadcasting System</p>
+<body>
+
+<div class="container">
+    <div class="card">
+        <div class="header">
+            <h1>La Fronterísima</h1>
+            <p>Notas surcando fronteras</p>
         </div>
 
-        <div class="glass rounded-[2rem] p-8 shadow-2xl space-y-8">
-            <div class="flex justify-between items-start">
-                <div>
-                    <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Estado Actual</p>
-                    <div class="flex items-center space-x-2">
-                        <div id="led" class="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></div>
-                        <h2 id="status" class="text-xl font-bold text-slate-200 uppercase tracking-tight">Cargando...</h2>
-                    </div>
-                </div>
-                <div class="text-right">
-                    <p class="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Último Envío</p>
-                    <p id="fecha" class="text-xl font-mono font-bold text-blue-400 tracking-tighter">--:--:--</p>
-                </div>
-            </div>
-
-            <div class="bg-slate-900/80 rounded-2xl p-6 border border-slate-700/50 shadow-inner">
-                <p class="text-[10px] text-slate-500 uppercase font-bold mb-3 tracking-widest">Monitor de Guion</p>
-                <p id="guion" class="text-slate-300 italic text-lg leading-relaxed font-serif">
-                    Sincronizando con el servidor de IA...
-                </p>
-            </div>
-
-            <button onclick="dispararDJ()" class="pulse w-full bg-blue-600 hover:bg-blue-500 active:scale-[0.98] transition-all py-5 rounded-2xl font-black text-lg uppercase tracking-wider flex items-center justify-center space-x-3 group">
-                <i class="fas fa-satellite-dish group-hover:rotate-12 transition-transform"></i>
-                <span>Generar Locución Manual</span>
+        <span class="section-label">1. ¿Qué quieres decir hoy?</span>
+        <div class="row">
+            <input type="text" id="ideaInput" placeholder="Ej: Invitación al festival de salsa el sábado">
+            <button class="btn btn-ai" onclick="redactarIA()">
+                <span>✨ Redactar</span>
             </button>
         </div>
 
-        <div class="flex justify-center space-x-8 text-slate-500 text-[10px] font-bold uppercase tracking-widest">
-            <span class="flex items-center"><i class="fas fa-microchip mr-2 text-blue-500"></i> Azure Salome</span>
-            <span class="flex items-center"><i class="fas fa-server mr-2 text-emerald-500"></i> Station 24</span>
+        <span class="section-label">2. Guion de Locución (Gonzalo Neural)</span>
+        <textarea id="guionText" rows="5" placeholder="Aquí aparecerá el guion generado..."></textarea>
+
+        <span class="section-label">3. Configuración de Archivo</span>
+        <input type="text" id="filename" placeholder="Nombre del archivo (ej: promo_evento.mp3)">
+        
+        <div class="options">
+            <input type="checkbox" id="conFondo" checked>
+            <label for="conFondo">Incluir cortina musical automática (Sidechain)</label>
+        </div>
+
+        <button class="btn btn-main" onclick="procesarProduccion()">
+            🚀 PRODUCIR Y SUBIR A AZURACAST
+        </button>
+
+        <div id="status-box"></div>
+
+        <div class="footer-info">
+            <span>Sistema: Gonzalo Neutro CO</span>
+            <span id="reloj-digital">00:00:00</span>
         </div>
     </div>
+</div>
 
-    <script>
-        async function update() {
-            try {
-                const r = await fetch('/api/status');
-                const d = await r.json();
-                document.getElementById('guion').innerText = d.guion;
-                document.getElementById('fecha').innerText = d.fecha;
-                document.getElementById('status').innerText = d.status;
-                
-                const led = document.getElementById('led');
-                if(d.status.includes("Error")) led.className = "w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]";
-                else if(d.status.includes("Procesando")) led.className = "w-2 h-2 rounded-full bg-yellow-500 shadow-[0_0_8px_#f59e0b]";
-                else led.className = "w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]";
-            } catch(e) {}
+<script>
+    const statusBox = document.getElementById('status-box');
+
+    function updateReloj() {
+        const ahora = new Date();
+        document.getElementById('reloj-digital').innerText = ahora.toLocaleTimeString();
+    }
+    setInterval(updateReloj, 1000);
+
+    function showStatus(msg, type) {
+        statusBox.innerText = msg;
+        statusBox.className = 'status-' + type;
+        if(type === 'success') setTimeout(() => statusBox.style.display = 'none', 6000);
+    }
+
+    // 1. Llamada a Gemini para redactar
+    async function redactarIA() {
+        const idea = document.getElementById('ideaInput').value;
+        if(!idea) return alert("Escribe una idea primero");
+
+        showStatus("🤖 Gemini está redactando tu guion...", "loading");
+
+        try {
+            const res = await fetch('/redactar-guion', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ idea })
+            });
+            const data = await res.json();
+            document.getElementById('guionText').value = data.guion;
+            showStatus("✅ Guion redactado con éxito.", "success");
+        } catch (e) {
+            showStatus("❌ Error al conectar con la IA.", "error");
         }
+    }
 
-        async function dispararDJ() {
-            if(!confirm("¿Deseas forzar una nueva locución ahora mismo?")) return;
-            await fetch('/api/disparar', { method: 'POST' });
-            document.getElementById('status').innerText = "Iniciando...";
+    // 2. Llamada al proceso de Audio (Azure + FFmpeg + Azura)
+    async function procesarProduccion() {
+        const texto = document.getElementById('guionText').value;
+        let nombre = document.getElementById('filename').value;
+        const conFondo = document.getElementById('conFondo').checked;
+
+        if(!texto || !nombre) return alert("Falta el guion o el nombre del archivo.");
+        if(!nombre.endsWith('.mp3')) nombre += '.mp3';
+
+        showStatus("🎙️ Generando voz, mezclando y subiendo...", "loading");
+
+        try {
+            const response = await fetch('/procesar-locucion', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ texto, nombreArchivo: nombre, conFondo })
+            });
+
+            if(response.ok) {
+                showStatus("🚀 ¡ÉXITO! El archivo ya está en AzuraCast.", "success");
+            } else {
+                throw new Error();
+            }
+        } catch (e) {
+            showStatus("❌ Error en la producción del audio.", "error");
         }
+    }
+</script>
 
-        setInterval(update, 5000);
-        update();
-    </script>
 </body>
 </html>
