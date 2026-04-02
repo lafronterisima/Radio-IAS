@@ -12,7 +12,7 @@ const parser = new Parser();
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
 // Configuración de Estación
-const STATION_ID = "42"; 
+const STATION_ID = "24"; 
 const AZURA_API = `https://az.azurafree.eu/api/station/${STATION_ID}/files`;
 
 // --- 1. OBTENER DATOS REALES ---
