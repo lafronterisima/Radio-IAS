@@ -13,6 +13,7 @@
             --text-dim: #a0a0a0;
             --accent-green: #4ecca3;
             --error-red: #ff5252;
+            --input-bg: #252525;
         }
 
         body {
@@ -47,7 +48,7 @@
 
         .header h1 {
             margin: 0;
-            font-size: 1.5em;
+            font-size: 1.6em;
             letter-spacing: 1px;
             color: var(--blue-brand);
             text-transform: uppercase;
@@ -57,7 +58,7 @@
             margin: 5px 0 0;
             color: var(--text-dim);
             font-style: italic;
-            font-size: 1.0em;
+            font-size: 0.95em;
         }
 
         .section-label {
@@ -65,20 +66,21 @@
             margin: 20px 0 8px;
             font-weight: 600;
             color: var(--blue-brand);
-            font-size: 0.9em;
+            font-size: 0.85em;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         input[type="text"], textarea {
             width: 100%;
-            background: #252525;
+            background: var(--input-bg);
             border: 1px solid #333;
             border-radius: 8px;
-            padding: 12px;
+            padding: 14px;
             color: white;
             font-size: 1em;
             box-sizing: border-box;
-            transition: all 0.3s;
+            transition: all 0.3s ease;
         }
 
         input:focus, textarea:focus {
@@ -99,7 +101,7 @@
             padding: 12px 20px;
             font-weight: bold;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: all 0.2s ease;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -109,12 +111,12 @@
         .btn-ai {
             background: #5851db;
             color: white;
-            flex: 1;
+            white-space: nowrap;
         }
 
-        .btn-ai:hover { 
+        .btn-ai:hover:not(:disabled) { 
             background: #4740b3;
-            transform: scale(1.02);
+            transform: translateY(-1px);
         }
 
         .btn-main {
@@ -122,18 +124,21 @@
             color: #000;
             width: 100%;
             font-size: 1.1em;
-            margin-top: 20px;
-            padding: 15px;
+            margin-top: 25px;
+            padding: 16px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
 
-        .btn-main:hover {
+        .btn-main:hover:not(:disabled) {
             background: #3eb38f;
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(78, 204, 163, 0.3);
         }
 
-        .btn-main:disabled {
-            background: #555;
+        .btn:disabled {
+            background: #444;
+            color: #777;
             cursor: not-allowed;
             transform: none;
         }
@@ -145,6 +150,7 @@
             font-size: 0.9em;
             color: var(--text-dim);
             cursor: pointer;
+            user-select: none;
         }
 
         .options input { margin-right: 10px; cursor: pointer; }
@@ -156,23 +162,29 @@
             text-align: center;
             font-size: 0.9em;
             display: none;
-            animation: fadeIn 0.5s;
+            animation: fadeIn 0.3s ease-out;
         }
 
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
         .status-loading { background: #2c3e50; color: #ecf0f1; display: block !important; }
         .status-success { background: #1b4332; color: #95d5b2; display: block !important; }
         .status-error { background: #431b1b; color: #d59595; display: block !important; }
 
         .footer-info {
-            margin-top: 20px;
+            margin-top: 25px;
             padding-top: 15px;
             border-top: 1px solid #333;
             display: flex;
             justify-content: space-between;
-            font-size: 0.8em;
+            font-size: 0.75em;
             color: #555;
+            letter-spacing: 0.5px;
+        }
+
+        #reloj-digital {
+            color: var(--blue-brand);
+            font-weight: bold;
         }
     </style>
 </head>
@@ -187,31 +199,31 @@
 
         <span class="section-label">1. ¿Qué quieres decir hoy?</span>
         <div class="row">
-            <input type="text" id="ideaInput" placeholder="Ej: Invitación al festival de salsa el sábado">
+            <input type="text" id="ideaInput" placeholder="Ej: Gran concierto de salsa en el centro...">
             <button class="btn btn-ai" id="btnRedactar" onclick="redactarIA()">
-                <span>✨ Redactar</span>
+                ✨ Redactar
             </button>
         </div>
 
         <span class="section-label">2. Guion de Locución (Gonzalo Neural)</span>
-        <textarea id="guionText" rows="5" placeholder="Aquí aparecerá el guion generado..."></textarea>
+        <textarea id="guionText" rows="5" placeholder="Aquí aparecerá el guion generado por la IA..."></textarea>
 
         <span class="section-label">3. Configuración de Archivo</span>
-        <input type="text" id="filename" placeholder="Nombre del archivo (ej: promo_evento)">
+        <input type="text" id="filename" placeholder="Nombre del archivo (ej: promo_lunes)">
         
-        <div class="options" onclick="document.getElementById('conFondo').click()">
+        <div class="options" onclick="toggleCheckbox()">
             <input type="checkbox" id="conFondo" checked onclick="event.stopPropagation()">
             <label>Incluir cortina musical automática (Sidechain)</label>
         </div>
 
         <button class="btn btn-main" id="btnProduccion" onclick="procesarProduccion()">
-            🚀 PRODUCIR Y SUBIR 
+            🚀 PRODUCIR Y SUBIR A AZURACAST
         </button>
 
         <div id="status-box"></div>
 
         <div class="footer-info">
-            <span>🎙️ Sistema: Gonzalo Neutro CO</span>
+            <span>🎙️ VOZ: Gonzalo Neutro CO</span>
             <span id="reloj-digital">00:00:00</span>
         </div>
     </div>
@@ -222,6 +234,7 @@
     const btnMain = document.getElementById('btnProduccion');
     const btnAi = document.getElementById('btnRedactar');
 
+    // Reloj Digital
     function updateReloj() {
         const ahora = new Date();
         document.getElementById('reloj-digital').innerText = ahora.toLocaleTimeString();
@@ -229,22 +242,30 @@
     setInterval(updateReloj, 1000);
     updateReloj();
 
+    function toggleCheckbox() {
+        const cb = document.getElementById('conFondo');
+        cb.checked = !cb.checked;
+    }
+
     function showStatus(msg, type) {
         statusBox.innerText = msg;
         statusBox.className = 'status-' + type;
+        statusBox.style.display = 'block';
         if(type === 'success') {
             setTimeout(() => {
-                statusBox.style.display = 'none';
-            }, 6000);
+                statusBox.style.opacity = '0';
+                setTimeout(() => { statusBox.style.display = 'none'; statusBox.style.opacity = '1'; }, 500);
+            }, 5000);
         }
     }
 
+    // Lógica para pedir redacción a Gemini
     async function redactarIA() {
         const idea = document.getElementById('ideaInput').value;
-        if(!idea) return alert("Por favor, escribe una idea para que la IA pueda redactar.");
+        if(!idea) return alert("Por favor, escribe una idea primero.");
 
         btnAi.disabled = true;
-        showStatus("🤖 Gemini está redactando tu guion profesional...", "loading");
+        showStatus("🤖 Gemini está redactando tu guion...", "loading");
 
         try {
             const res = await fetch('/redactar-guion', {
@@ -254,7 +275,7 @@
             });
             const data = await res.json();
             document.getElementById('guionText').value = data.guion;
-            showStatus("✅ Guion redactado. Puedes editarlo si lo deseas.", "success");
+            showStatus("✅ Guion listo para locución.", "success");
         } catch (e) {
             showStatus("❌ Error al conectar con el servidor de IA.", "error");
         } finally {
@@ -262,19 +283,20 @@
         }
     }
 
+    // Lógica para generar voz, mezclar y subir
     async function procesarProduccion() {
         const texto = document.getElementById('guionText').value;
         let nombre = document.getElementById('filename').value.trim();
         const conFondo = document.getElementById('conFondo').checked;
 
-        if(!texto || !nombre) return alert("Debes tener un guion y asignar un nombre al archivo.");
+        if(!texto || !nombre) return alert("Necesitas un guion y un nombre de archivo.");
         
-        // Limpieza de nombre de archivo
+        // Limpiar nombre de archivo (solo letras, números y guiones)
         nombre = nombre.replace(/[^a-z0-9_]/gi, '_').toLowerCase();
         if(!nombre.endsWith('.mp3')) nombre += '.mp3';
 
         btnMain.disabled = true;
-        showStatus("🎙️ Gonzalo está grabando... mezclando con música y subiendo.", "loading");
+        showStatus("🎙️ Grabando voz y mezclando con música...", "loading");
 
         try {
             const response = await fetch('/procesar-locucion', {
@@ -284,15 +306,15 @@
             });
 
             if(response.ok) {
-                showStatus("🚀 ¡ÉXITO! Locución enviada a AzuraCast correctamente.", "success");
-                // Limpiar campos tras éxito
+                showStatus("🚀 ¡PRODUCCIÓN EXITOSA! Subido a AzuraCast.", "success");
                 document.getElementById('ideaInput').value = "";
                 document.getElementById('filename').value = "";
             } else {
-                throw new Error();
+                const errorMsg = await response.text();
+                throw new Error(errorMsg);
             }
         } catch (e) {
-            showStatus("❌ Error en la producción del audio. Revisa la consola del servidor.", "error");
+            showStatus("❌ Error en la producción: " + e.message, "error");
         } finally {
             btnMain.disabled = false;
         }
