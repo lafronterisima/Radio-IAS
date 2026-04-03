@@ -9,6 +9,7 @@ const path = require("path");
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
 
 // 1. SERVIR FRONTEND Y HEALTH CHECK (Prioridad para Koyeb)
 app.use(express.static(path.join(__dirname, "public")));
