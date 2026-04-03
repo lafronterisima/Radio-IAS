@@ -25,7 +25,7 @@ async function redactarIA(idea, datos = null) {
             : `Idea: ${idea}. Genera un guion de radio fluido (40 palabras). Eslogan: "Notas surcando fronteras". Solo texto plano.`;
 
         // URL CORREGIDA: v1beta y modelo base sin "-latest" para evitar el 404
-       const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${API_KEY_GEMINI}`;
+       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY_GEMINI}`;
         
         const response = await axios.post(url, {
             contents: [{ parts: [{ text: prompt }] }]
