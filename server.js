@@ -46,29 +46,24 @@ async function obtenerContexto() {
     }
 }
 
-// ======= 2. REDACTAR CON GEMINI (API V1) =======
+// ======= 2. REDACTAR CON GEMINI (SOLUCIÓN ERROR 404) =======
 async function redactarIA(idea, datos = null) {
     try {
         const prompt = datos 
-            ? `Eres el locutor de "La Fronterísima" en Cali. Datos: Hora ${datos.hora}, Temp ${datos.temp}°C, Noticia: ${datos.titular}. Redacta un guion corto (max 35 palabras), dinámico y profesional. Eslogan: "Notas surcando fronteras". Solo texto plano.`
+            ? `Eres el locutor de "La Fronterísima" en Cali. Datos: Hora ${datos.hora}, Temp ${datos.temp}°C, Noticia: ${datos.titular}. Redacta un guion corto (max 35 palabras), dinámico. Eslogan: "Notas surcando fronteras". Solo texto plano.`
             : `Eres locutor de La Fronterísima. Idea: ${idea}. Eslogan: "Notas surcando fronteras". Guion corto.`;
 
-        // URL específica para el modelo Gemini 3 Flash en versión v1
-        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-3-flash-preview:generateContent?key=${API_KEY_GEMINI}`;
+        // Usamos gemini-1.5-flash-latest en v1 para máxima estabilidad
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${API_KEY_GEMINI}`;
         
         const response = await axios.post(url, {
-            contents: [{ 
-                role: "user",
-                parts: [{ text: prompt }] 
-            }]
+            contents: [{ parts: [{ text: prompt }] }]
         });
 
-        const texto = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!texto) throw new Error("Respuesta de Gemini vacía");
-
-        return texto.replace(/[*#]/g, '').replace(/Locutor:|Guion:/gi, '').trim();
+        const texto = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        return texto.replace(/[*#]/g, '').replace(/Locutor:|Guion:|Guión:/gi, '').trim();
     } catch (error) {
-        console.error("❌ Error Gemini API:", error.response?.data || error.message);
+        console.error("❌ Error Gemini:", error.response?.data || error.message);
         return "Estás en sintonía con La Fronterísima, notas surcando fronteras en Cali.";
     }
 }
@@ -103,7 +98,7 @@ async function generarVoz(texto, nombreArchivoVoz) {
     });
 }
 
-// ======= 4. FFMPEG Y SUBIDA A AZURACAST =======
+// ======= 4. FFMPEG Y SUBIDA (SOLUCIÓN ERROR CONSTRUCTOR AZURA) =======
 async function producirYSubir(archivoVoz, nombreFinalDestino, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
     
@@ -117,20 +112,23 @@ async function producirYSubir(archivoVoz, nombreFinalDestino, conFondo) {
 
             try {
                 const form = new FormData();
-                // Importante: El stream del archivo debe ir en el campo 'file'
+                // Adjuntamos el archivo
                 form.append("file", fs.createReadStream(tempSalida));
+                // IMPORTANTE: Enviamos el 'path' dentro del form para evitar el error de constructor
+                form.append("path", nombreFinalDestino); 
 
                 await axios.post(AZURA_API_URL, form, {
-                    headers: { ...form.getHeaders(), "X-API-Key": AZURA_KEY },
-                    params: { path: nombreFinalDestino } // El path va como query param
+                    headers: { 
+                        ...form.getHeaders(), 
+                        "X-API-Key": AZURA_KEY 
+                    }
                 });
 
-                // Limpieza
                 if (fs.existsSync(archivoVoz)) fs.unlinkSync(archivoVoz);
                 if (fs.existsSync(tempSalida)) fs.unlinkSync(tempSalida);
                 resolve();
             } catch (e) {
-                console.error("Detalle AzuraCast:", e.response?.data);
+                console.error("❌ Detalle AzuraCast:", e.response?.data || e.message);
                 reject("Error AzuraCast: " + (e.response?.data?.message || e.message));
             }
         });
@@ -147,7 +145,7 @@ app.post("/procesar-locucion", async (req, res) => {
     try {
         await generarVoz(texto, vozId);
         await producirYSubir(vozId, nombreArchivo || "locucion.mp3", conFondo);
-        res.send("✅ Éxito.");
+        res.send("✅ Locución procesada con éxito.");
     } catch (e) {
         res.status(500).send(e.toString());
     }
@@ -157,13 +155,14 @@ app.post("/procesar-locucion", async (req, res) => {
 
 async function tick() {
     const autoId = `auto_${Date.now()}.mp3`;
-    console.log(`🎙️ [${new Date().toLocaleTimeString()}] Iniciando reporte...`);
+    console.log(`🎙️ [${new Date().toLocaleTimeString()}] Generando reporte automático...`);
     try {
         const datos = await obtenerContexto();
         const guion = await redactarIA(null, datos);
+        console.log("📝 Guion:", guion);
         await generarVoz(guion, autoId);
         await producirYSubir(autoId, "dj_auto.mp3", true);
-        console.log("✅ Reporte actualizado.");
+        console.log("✅ Ciclo completado.");
     } catch (e) {
         console.error("⚠️ Error en ciclo:", e.message);
     }
@@ -173,9 +172,8 @@ async function tick() {
 setInterval(tick, 15 * 60 * 1000);
 
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, "0.0.0.0", () => { // Agregamos "0.0.0.0" para asegurar visibilidad en la red de Koyeb
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima activa en el puerto ${PORT}`);
-    
-    // Esperamos 45 segundos antes de la primera locución para que Koyeb confirme que la app inició
+    // Delay de 45 segundos para que pase el Health Check de Koyeb antes de la carga pesada
     setTimeout(tick, 45000); 
 });
