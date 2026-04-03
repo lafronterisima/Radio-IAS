@@ -24,18 +24,18 @@ async function redactarIA(idea, datos = null) {
             ? `Locutor de "La Fronterísima" en Cali. Hora ${datos.hora}, Temp ${datos.temp}°C. Guion corto (30 palabras). Eslogan: "Notas surcando fronteras".`
             : `Idea: ${idea}. Genera un guion de radio fluido (40 palabras). Eslogan: "Notas surcando fronteras". Solo texto plano.`;
 
-        // URL CORREGIDA: v1beta y modelo base sin "-latest" para evitar el 404
-       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY_GEMINI}`;
+        // MODELO ACTUALIZADO A 2.5 FLASH
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY_GEMINI}`;
         
         const response = await axios.post(url, {
             contents: [{ parts: [{ text: prompt }] }]
         });
 
         const texto = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        return texto.replace(/[*#]/g, '').replace(/Locutor:|Guion:/gi, '').trim();
+        return texto.replace(/[*#]/g, '').trim();
     } catch (error) {
         console.error("❌ Error Gemini:", error.response?.data || error.message);
-        return "Sintonizas La Fronterísima, la emisora que te acompaña con la mejor energía. Notas surcando fronteras.";
+        return "Sintonizas La Fronterísima, la emisora que te acompaña. Notas surcando fronteras.";
     }
 }
 
@@ -234,6 +234,6 @@ setInterval(tick, 15 * 60 * 1000);
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Servidor listo en puerto ${PORT}`);
-    // Esperamos 60 segundos antes del primer reporte para que Koyeb pase el Health Check
-    setTimeout(tick, 60000); 
+    // Esperamos 2 minutos (120000ms) para que el Health Check pase con seguridad
+    setTimeout(tick, 120000); 
 });
