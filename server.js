@@ -50,23 +50,25 @@ async function obtenerContexto() {
 async function redactarIA(idea, datos = null) {
     try {
         const prompt = datos 
-            ? `Eres el locutor de "La Fronterísima" en Cali. 
-               Datos: Hora ${datos.hora}, Temp ${datos.temp}°C, Noticia: ${datos.titular}. 
-               Redacta un guion corto (max 35 palabras), dinámico y profesional. 
-               Eslogan: "Notas surcando fronteras". No uses asteriscos ni emojis.`
+            ? `Eres el locutor de "La Fronterísima" en Cali. Datos: Hora ${datos.hora}, Temp ${datos.temp}°C, Noticia: ${datos.titular}. Redacta un guion corto (max 35 palabras), dinámico y profesional. Eslogan: "Notas surcando fronteras". Solo texto plano.`
             : `Eres locutor de La Fronterísima. Idea: ${idea}. Eslogan: "Notas surcando fronteras". Guion corto.`;
 
-        // URL actualizada a v1 para evitar error 404
-        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${API_KEY_GEMINI}`;
+        // URL específica para el modelo Gemini 3 Flash en versión v1
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-3-flash-preview:generateContent?key=${API_KEY_GEMINI}`;
         
         const response = await axios.post(url, {
-            contents: [{ parts: [{ text: prompt }] }]
+            contents: [{ 
+                role: "user",
+                parts: [{ text: prompt }] 
+            }]
         });
 
-        let texto = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const texto = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!texto) throw new Error("Respuesta de Gemini vacía");
+
         return texto.replace(/[*#]/g, '').replace(/Locutor:|Guion:/gi, '').trim();
     } catch (error) {
-        console.error("❌ Error Gemini:", error.response?.data || error.message);
+        console.error("❌ Error Gemini API:", error.response?.data || error.message);
         return "Estás en sintonía con La Fronterísima, notas surcando fronteras en Cali.";
     }
 }
@@ -171,8 +173,9 @@ async function tick() {
 setInterval(tick, 15 * 60 * 1000);
 
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => { // Agregamos "0.0.0.0" para asegurar visibilidad en la red de Koyeb
     console.log(`🚀 La Fronterísima activa en el puerto ${PORT}`);
-    // Delay de 30 segundos para asegurar que el Health Check de Koyeb pase primero
-    setTimeout(tick, 30000); 
-});  
+    
+    // Esperamos 45 segundos antes de la primera locución para que Koyeb confirme que la app inició
+    setTimeout(tick, 45000); 
+});
