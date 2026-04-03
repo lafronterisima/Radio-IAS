@@ -46,14 +46,13 @@ async function obtenerContexto() {
     }
 }
 
-// ======= 2. REDACTAR CON GEMINI (SOLUCIÓN ERROR 404) =======
+// ======= 2. REDACTAR CON GEMINI =======
 async function redactarIA(idea, datos = null) {
     try {
         const prompt = datos 
             ? `Eres el locutor de "La Fronterísima" en Cali. Datos: Hora ${datos.hora}, Temp ${datos.temp}°C, Noticia: ${datos.titular}. Redacta un guion corto (max 35 palabras), dinámico. Eslogan: "Notas surcando fronteras". Solo texto plano.`
             : `Eres locutor de La Fronterísima. Idea: ${idea}. Eslogan: "Notas surcando fronteras". Guion corto.`;
 
-        // Usamos gemini-1.5-flash-latest en v1 para máxima estabilidad
         const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${API_KEY_GEMINI}`;
         
         const response = await axios.post(url, {
@@ -98,7 +97,7 @@ async function generarVoz(texto, nombreArchivoVoz) {
     });
 }
 
-// ======= 4. FFMPEG Y SUBIDA (SOLUCIÓN ERROR CONSTRUCTOR AZURA) =======
+// ======= 4. FFMPEG Y SUBIDA =======
 async function producirYSubir(archivoVoz, nombreFinalDestino, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
     
@@ -112,23 +111,30 @@ async function producirYSubir(archivoVoz, nombreFinalDestino, conFondo) {
 
             try {
                 const form = new FormData();
-                // Adjuntamos el archivo
-                form.append("file", fs.createReadStream(tempSalida));
-                // IMPORTANTE: Enviamos el 'path' dentro del form para evitar el error de constructor
-                form.append("path", nombreFinalDestino); 
+                // Corregido: Usamos tempSalida que es el archivo generado por FFmpeg
+                form.append("file", fs.createReadStream(tempSalida), { 
+                    filename: nombreFinalDestino, 
+                    contentType: 'audio/mpeg' 
+                });
+                form.append("path", nombreFinalDestino);
 
-                await axios.post(AZURA_API_URL, form, {
+                await axios.post(AZURA_API_UPLOAD, form, {
                     headers: { 
                         ...form.getHeaders(), 
-                        "X-API-Key": AZURA_KEY 
+                        "X-API-Key": AZURA_KEY,
+                        "Accept": "application/json"
                     }
                 });
 
+                // Limpieza de temporales
                 if (fs.existsSync(archivoVoz)) fs.unlinkSync(archivoVoz);
                 if (fs.existsSync(tempSalida)) fs.unlinkSync(tempSalida);
+                
                 resolve();
             } catch (e) {
                 console.error("❌ Detalle AzuraCast:", e.response?.data || e.message);
+                if (fs.existsSync(archivoVoz)) fs.unlinkSync(archivoVoz);
+                if (fs.existsSync(tempSalida)) fs.unlinkSync(tempSalida);
                 reject("Error AzuraCast: " + (e.response?.data?.message || e.message));
             }
         });
@@ -136,7 +142,6 @@ async function producirYSubir(archivoVoz, nombreFinalDestino, conFondo) {
 }
 
 // ======= ENDPOINTS =======
-
 app.get('/', (req, res) => res.send("🎙️ La Fronterísima AI operando correctamente."));
 
 app.post("/procesar-locucion", async (req, res) => {
@@ -152,7 +157,6 @@ app.post("/procesar-locucion", async (req, res) => {
 });
 
 // ======= AUTOMATIZACIÓN =======
-
 async function tick() {
     const autoId = `auto_${Date.now()}.mp3`;
     console.log(`🎙️ [${new Date().toLocaleTimeString()}] Generando reporte automático...`);
@@ -168,12 +172,10 @@ async function tick() {
     }
 }
 
-// Intervalo 15 min
 setInterval(tick, 15 * 60 * 1000);
 
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima activa en el puerto ${PORT}`);
-    // Delay de 45 segundos para que pase el Health Check de Koyeb antes de la carga pesada
     setTimeout(tick, 45000); 
 });
