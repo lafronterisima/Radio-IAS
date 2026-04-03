@@ -52,13 +52,21 @@ async function redactarIA(idea, datos = null) {
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
         const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
-        speechConfig.speechSynthesisVoiceName = "es-CO-GonzaloNeural";
+        
+        // Cambiamos a Salomé que es más expresiva para radio
+        speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural"; 
         const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
         
+        // SSML con estilo alegre y entonación dinámica
         const ssml = `
-            <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
-                <voice name="es-CO-GonzaloNeural">
-                    <prosody rate="1.05" pitch="-2%">${texto}</prosody>
+            <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" 
+                   xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="es-CO">
+                <voice name="es-CO-SalomeNeural">
+                    <mstts:express-as style="cheerful" styledegree="1.5">
+                        <prosody rate="+10%" pitch="+5%">
+                            ${texto}
+                        </prosody>
+                    </mstts:express-as>
                 </voice>
             </speak>`;
 
