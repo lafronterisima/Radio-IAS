@@ -6,7 +6,6 @@ const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
 const Parser = require('rss-parser');
-const path = require('path');
 
 const app = express();
 app.use(express.json());
@@ -14,7 +13,7 @@ app.use(express.static('public'));
 
 const parser = new Parser();
 
-// ======= CONFIGURACIÓN =======
+// ======= CONFIGURACIÓN DE VARIABLES =======
 const API_KEY_GEMINI = process.env.GOOGLE_API_KEY;
 const AZURA_KEY = process.env.AZURA_KEY;
 const AZURE_KEY = process.env.AZURE_SPEECH_KEY;
@@ -22,85 +21,46 @@ const AZURE_REGION = process.env.AZURE_REGION;
 const STATION_ID = process.env.STATION_ID || "24"; 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${STATION_ID}/files/upload`;
 
-// ======= 1. OBTENER CONTEXTO (CALI) =======
-async function obtenerContexto() {
-    try {
-        const ahora = new Date().toLocaleTimeString("es-CO", { 
-            timeZone: "America/Bogota", 
-            hour: '2-digit', 
-            minute: '2-digit' 
-        });
-        
-        const climaRes = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
-        const temp = climaRes.data?.current_weather?.temperature;
-        const noticias = await parser.parseURL('https://feeds.bbci.co.uk/mundo/rss.xml');
-        
-        return {
-            hora: ahora,
-            temp: temp ? Math.round(temp) : "24",
-            titular: noticias.items[0]?.title || "la mejor música del momento"
-        };
-    } catch (e) {
-        console.error("⚠️ Error en contexto:", e.message);
-        return { hora: "ahora", temp: "25", titular: "sintonía total" };
-    }
-}
+// ======= FUNCIONES DE LÓGICA CORE =======
 
-// ======= 2. REDACTAR CON GEMINI =======
 async function redactarIA(idea, datos = null) {
     try {
         const prompt = datos 
             ? `Eres el locutor de "La Fronterísima" en Cali. Datos: Hora ${datos.hora}, Temp ${datos.temp}°C, Noticia: ${datos.titular}. Redacta un guion corto (max 35 palabras), dinámico. Eslogan: "Notas surcando fronteras". Solo texto plano.`
-            : `Eres locutor de La Fronterísima. Idea: ${idea}. Eslogan: "Notas surcando fronteras". Guion corto.`;
+            : `Eres locutor de La Fronterísima. Idea: ${idea}. Genera un guion de radio profesional y fluido para esta idea. Máximo 40 palabras. Usa el eslogan "Notas surcando fronteras". Solo texto plano sin asteriscos.`;
 
         const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-latest:generateContent?key=${API_KEY_GEMINI}`;
-        
-        const response = await axios.post(url, {
-            contents: [{ parts: [{ text: prompt }] }]
-        });
-
+        const response = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] });
         const texto = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        return texto.replace(/[*#]/g, '').replace(/Locutor:|Guion:|Guión:/gi, '').trim();
+        return texto.replace(/[*#]/g, '').replace(/Locutor:|Guion:/gi, '').trim();
     } catch (error) {
-        console.error("❌ Error Gemini:", error.response?.data || error.message);
-        return "Estás en sintonía con La Fronterísima, notas surcando fronteras en Cali.";
+        console.error("Error Gemini:", error.message);
+        return "Sintonizas La Fronterísima, la emisora que te acompaña con la mejor energía. Notas surcando fronteras.";
     }
 }
 
-// ======= 3. GENERAR VOZ (AZURE) =======
-async function generarVoz(texto, nombreArchivoVoz) {
+async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
         const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
         speechConfig.speechSynthesisVoiceName = "es-CO-GonzaloNeural";
         const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
-
-        const ssml = `
-            <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
-                <voice name="es-CO-GonzaloNeural">
-                    <prosody rate="0.95" pitch="-5%">${texto}</prosody>
-                </voice>
-            </speak>`;
+        const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO"><voice name="es-CO-GonzaloNeural"><prosody rate="1.0" pitch="-2%">${texto}</prosody></voice></speak>`;
 
         synthesizer.speakSsmlAsync(ssml, result => {
             if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-                fs.writeFileSync(nombreArchivoVoz, Buffer.from(result.audioData));
+                fs.writeFileSync(archivoDestino, Buffer.from(result.audioData));
                 synthesizer.close();
                 resolve();
             } else {
                 synthesizer.close();
                 reject("Error Azure TTS: " + result.errorDetails);
             }
-        }, err => {
-            synthesizer.close();
-            reject(err);
-        });
+        }, err => { synthesizer.close(); reject(err); });
     });
 }
 
-// ======= 4. FFMPEG Y SUBIDA =======
-async function producirYSubir(archivoVoz, nombreFinalDestino, conFondo) {
-    const tempSalida = `prod_${Date.now()}.mp3`;
-    
+async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
+    const tempSalida = `final_${Date.now()}.mp3`;
     return new Promise((resolve, reject) => {
         const comando = (conFondo && fs.existsSync("fondo.mp3"))
             ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.15[bg];[1:a]volume=1.4[v];[bg][v]sidechaincompress=threshold=0.1:ratio=15[out]" -map "[out]" -shortest -c:a libmp3lame -b:a 128k ${tempSalida}`
@@ -108,68 +68,180 @@ async function producirYSubir(archivoVoz, nombreFinalDestino, conFondo) {
 
         exec(comando, async (err) => {
             if (err) return reject("Error FFmpeg: " + err);
-
             try {
                 const form = new FormData();
-                // Corregido: Usamos tempSalida que es el archivo generado por FFmpeg
-                form.append("file", fs.createReadStream(tempSalida), { 
-                    filename: nombreFinalDestino, 
-                    contentType: 'audio/mpeg' 
-                });
-                form.append("path", nombreFinalDestino);
+                form.append("file", fs.createReadStream(tempSalida), { filename: nombreFinal });
+                form.append("path", nombreFinal);
 
                 await axios.post(AZURA_API_UPLOAD, form, {
-                    headers: { 
-                        ...form.getHeaders(), 
-                        "X-API-Key": AZURA_KEY,
-                        "Accept": "application/json"
-                    }
+                    headers: { ...form.getHeaders(), "X-API-Key": AZURA_KEY }
                 });
 
-                // Limpieza de temporales
                 if (fs.existsSync(archivoVoz)) fs.unlinkSync(archivoVoz);
                 if (fs.existsSync(tempSalida)) fs.unlinkSync(tempSalida);
-                
                 resolve();
             } catch (e) {
-                console.error("❌ Detalle AzuraCast:", e.response?.data || e.message);
-                if (fs.existsSync(archivoVoz)) fs.unlinkSync(archivoVoz);
-                if (fs.existsSync(tempSalida)) fs.unlinkSync(tempSalida);
                 reject("Error AzuraCast: " + (e.response?.data?.message || e.message));
             }
         });
     });
 }
 
-// ======= ENDPOINTS =======
-app.get('/', (req, res) => res.send("🎙️ La Fronterísima AI operando correctamente."));
+// ======= ENDPOINTS PARA EL FRONTEND =======
 
+app.get("/", (req, res) => {
+    res.send(`
+    <html>
+        <head>
+            <title>Fronterisima DJ Pro</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <style>
+                .btn-ai { background: linear-gradient(90deg, #4f46e5, #9333ea); color: white; }
+                .status-loading { color: #fbbf24; font-weight: bold; }
+                .status-success { color: #34d399; font-weight: bold; }
+                .status-error { color: #f87171; font-weight: bold; }
+            </style>
+        </head>
+        <body class="bg-slate-900 text-white flex items-center justify-center min-h-screen p-4">
+            <div class="bg-slate-800 p-8 rounded-3xl shadow-2xl w-full max-w-lg border border-slate-700">
+                <div class="text-center mb-8">
+                    <h1 class="text-3xl font-black text-blue-400 tracking-tighter uppercase">La Fronterísima</h1>
+                    <p class="text-slate-400 text-sm">Notas surcando fronteras</p>
+                </div>
+
+                <div class="space-y-6">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-2">1. ¿Qué quieres decir hoy?</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="ideaInput" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm" placeholder="Ej: Saludo a los oyentes de Cali">
+                            <button id="btnRedactar" onclick="redactarManual()" class="btn-ai px-4 py-2 rounded-xl text-sm font-bold hover:opacity-90 active:scale-95 transition-all">✨ Redactar</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-2">2. Guion de Locución (Editable)</label>
+                        <textarea id="guionText" rows="4" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-slate-300 italic" placeholder="Aquí aparecerá el guion..."></textarea>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase mb-2">3. Nombre del Archivo</label>
+                            <input type="text" id="filename" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm" placeholder="ej: promo_lunes">
+                        </div>
+                        <label class="flex items-center gap-3 cursor-pointer bg-slate-900 p-3 rounded-xl border border-slate-700">
+                            <input type="checkbox" id="conFondo" checked class="w-5 h-5 rounded border-slate-700 bg-slate-800">
+                            <span class="text-xs text-slate-300">Incluir fondo musical automático</span>
+                        </label>
+                    </div>
+
+                    <button id="btnProduccion" onclick="procesarProduccion()" class="w-full bg-blue-600 p-4 rounded-2xl font-black text-lg hover:bg-blue-500 active:scale-95 transition-all shadow-lg shadow-blue-900/20">
+                        🚀 PRODUCIR Y SUBIR
+                    </button>
+
+                    <div id="status-box" class="text-center text-sm py-2 min-h-[40px]"></div>
+
+                    <div class="flex justify-between items-center pt-4 border-t border-slate-700 text-[10px] text-slate-500 font-mono">
+                        <span>🎙️ VOZ: GONZALO NEURAL (COL)</span>
+                        <span id="reloj-digital">00:00:00</span>
+                    </div>
+                </div>
+            </div>
+
+            <script>
+                const statusBox = document.getElementById('status-box');
+                const btnMain = document.getElementById('btnProduccion');
+                const btnAi = document.getElementById('btnRedactar');
+
+                function updateReloj() {
+                    document.getElementById('reloj-digital').innerText = new Date().toLocaleTimeString();
+                }
+                setInterval(updateReloj, 1000);
+
+                function showStatus(msg, type) {
+                    statusBox.innerText = msg;
+                    statusBox.className = 'text-center text-sm py-2 status-' + type;
+                }
+
+                async function redactarManual() {
+                    const idea = document.getElementById('ideaInput').value;
+                    if(!idea) return alert("Escribe una idea primero.");
+                    btnAi.disabled = true;
+                    showStatus("🤖 Gemini redactando...", "loading");
+                    try {
+                        const res = await fetch('/redactar-guion', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ idea })
+                        });
+                        const data = await res.json();
+                        document.getElementById('guionText').value = data.guion;
+                        showStatus("✅ Guion listo.", "success");
+                    } catch (e) { showStatus("❌ Error en IA.", "error"); }
+                    finally { btnAi.disabled = false; }
+                }
+
+                async function procesarProduccion() {
+                    const texto = document.getElementById('guionText').value;
+                    let nombre = document.getElementById('filename').value.trim();
+                    const conFondo = document.getElementById('conFondo').checked;
+
+                    if(!texto || !nombre) return alert("Falta guion o nombre de archivo.");
+                    nombre = nombre.replace(/[^a-z0-9_]/gi, '_').toLowerCase() + ".mp3";
+
+                    btnMain.disabled = true;
+                    showStatus("🎙️ Grabando y procesando audio...", "loading");
+                    try {
+                        const res = await fetch('/procesar-locucion', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ texto, nombreArchivo: nombre, conFondo })
+                        });
+                        if(res.ok) showStatus("🚀 ¡SUBIDO A AZURACAST!", "success");
+                        else showStatus("❌ Fallo en subida.", "error");
+                    } catch (e) { showStatus("❌ Error de red.", "error"); }
+                    finally { btnMain.disabled = false; }
+                }
+            </script>
+        </body>
+    </html>`);
+});
+
+// Endpoint para Redactar
+app.post("/redactar-guion", async (req, res) => {
+    const texto = await redactarIA(req.body.idea);
+    res.json({ guion: texto });
+});
+
+// Endpoint para Procesar Locución
 app.post("/procesar-locucion", async (req, res) => {
-    const { texto, conFondo, nombreArchivo } = req.body;
-    const vozId = `manual_${Date.now()}.mp3`;
+    const { texto, nombreArchivo, conFondo } = req.body;
+    const tempId = `voz_${Date.now()}.mp3`;
     try {
-        await generarVoz(texto, vozId);
-        await producirYSubir(vozId, nombreArchivo || "locucion.mp3", conFondo);
-        res.send("✅ Locución procesada con éxito.");
+        await generarVoz(texto, tempId);
+        await producirYSubir(tempId, nombreArchivo, conFondo);
+        res.send("OK");
     } catch (e) {
+        console.error(e);
         res.status(500).send(e.toString());
     }
 });
 
-// ======= AUTOMATIZACIÓN =======
+// ======= AUTOMATIZACIÓN (REPORTE CADA 15 MIN) =======
+
 async function tick() {
-    const autoId = `auto_${Date.now()}.mp3`;
-    console.log(`🎙️ [${new Date().toLocaleTimeString()}] Generando reporte automático...`);
+    const autoFile = `auto_${Date.now()}.mp3`;
     try {
-        const datos = await obtenerContexto();
+        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
+        const datos = { 
+            hora: new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' }),
+            temp: Math.round(clim.data.current_weather.temperature),
+            titular: "la mejor música del mundo"
+        };
         const guion = await redactarIA(null, datos);
-        console.log("📝 Guion:", guion);
-        await generarVoz(guion, autoId);
-        await producirYSubir(autoId, "dj_auto.mp3", true);
-        console.log("✅ Ciclo completado.");
-    } catch (e) {
-        console.error("⚠️ Error en ciclo:", e.message);
-    }
+        await generarVoz(guion, autoFile);
+        await producirYSubir(autoFile, "dj_auto.mp3", true);
+        console.log("✅ Reporte automático de 15 min subido.");
+    } catch (e) { console.error("Error en tick:", e.message); }
 }
 
 setInterval(tick, 15 * 60 * 1000);
@@ -177,5 +249,5 @@ setInterval(tick, 15 * 60 * 1000);
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima activa en el puerto ${PORT}`);
-    setTimeout(tick, 45000); 
+    setTimeout(tick, 30000); 
 });
