@@ -20,7 +20,7 @@ const AZURA_KEY = process.env.AZURA_KEY;
 const AZURE_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_REGION = process.env.AZURE_REGION;
 const STATION_ID = process.env.STATION_ID || "24"; 
-const AZURA_API_URL = `https://az.azurafree.eu/api/station/${STATION_ID}/files`;
+const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${STATION_ID}/files/upload`;
 
 // ======= 1. OBTENER CONTEXTO (CALI) =======
 async function obtenerContexto() {
