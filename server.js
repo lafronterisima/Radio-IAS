@@ -206,11 +206,16 @@ async function autoReporte() {
 }
 
 // ======= 6. ARRANQUE =======
+// ======= 6. ARRANQUE =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Puerto: ${PORT}`);
+    console.log(`🚀 Servidor listo y escuchando en puerto: ${PORT}`);
+    
+    // IMPORTANTE: Aumentamos el retraso a 1 minuto (60000 ms) 
+    // para que Koyeb termine de hacer el Health Check con calma.
     setTimeout(() => {
+        console.log("▶️ Iniciando primer reporte automático...");
         autoReporte();
         setInterval(autoReporte, 15 * 60 * 1000);
-    }, 10000); 
+    }, 60000); 
 });
