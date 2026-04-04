@@ -51,6 +51,9 @@ async function redactarIA(idea, datos = null) {
 
 // ======= 3. GENERACIÓN DE VOZ (AZURE) =======
 async function generarVoz(texto, archivoDestino) {
+    if (!AZURE_KEY || !AZURE_REGION) {
+        throw new Error("Faltan las credenciales de Azure Speech en las variables de entorno.");
+    }
     return new Promise((resolve, reject) => {
         const speechConfig = sdk.SpeechConfig.fromSubscription(AZURE_KEY, AZURE_REGION);
         
