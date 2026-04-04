@@ -208,14 +208,23 @@ async function autoReporte() {
 // ======= 6. ARRANQUE =======
 // ======= 6. ARRANQUE =======
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Servidor listo y escuchando en puerto: ${PORT}`);
+
+const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 La Fronterísima Pro operando en puerto ${PORT}`);
     
-    // IMPORTANTE: Aumentamos el retraso a 1 minuto (60000 ms) 
-    // para que Koyeb termine de hacer el Health Check con calma.
+    // Aumentamos el retraso a 60 segundos (1 minuto)
+    // Esto permite que Koyeb confirme que la app está "viva" antes de que la IA empiece a trabajar
     setTimeout(() => {
-        console.log("▶️ Iniciando primer reporte automático...");
+        console.log("▶️ Iniciando ciclo de reportes automáticos...");
         autoReporte();
         setInterval(autoReporte, 15 * 60 * 1000);
     }, 60000); 
+});
+
+// Manejador de errores para el servidor
+server.on('error', (e) => {
+    if (e.code === 'EADDRINUSE') {
+        console.error(`❌ Puerto ${PORT} ocupado.`);
+        process.exit(1);
+    }
 });
