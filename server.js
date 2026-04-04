@@ -151,10 +151,25 @@ async function autoReporte() {
 
 // ======= 5. ARRANQUE =======
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
+
+const server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 La Fronterísima Pro operando en puerto ${PORT}`);
+    
+    // Iniciamos la automatización después de 10 segundos
     setTimeout(() => {
+        console.log("▶️ Iniciando ciclo de reportes automáticos...");
         autoReporte();
         setInterval(autoReporte, 15 * 60 * 1000);
-    }, 10000); // Inicia 10 segundos después del arranque
+    }, 10000); 
+});
+
+// Manejador de errores para evitar que la app crashee si el puerto está ocupado
+server.on('error', (e) => {
+    if (e.code === 'EADDRINUSE') {
+        console.error(`❌ ERROR: El puerto ${PORT} ya está ocupado por otro proceso.`);
+        console.error(`👉 Intenta cerrar procesos viejos o usa: lsof -ti:${PORT} | xargs kill -9`);
+        process.exit(1);
+    } else {
+        console.error("❌ Error al iniciar el servidor:", e);
+    }
 });
