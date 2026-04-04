@@ -29,10 +29,8 @@ const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}
 // ======= 1. OBTENER NOTICIAS REALES (RSS) =======
 async function obtenerNoticia() {
     try {
-        // Usamos un feed de noticias de Colombia (puedes cambiar la URL)
         const res = await axios.get("https://news.google.com/rss/search?q=Colombia+Cali&hl=es-419&gl=CO&ceid=CO:es-419");
         const match = res.data.match(/<title>([^<]+)<\/title>/g);
-        // Retornamos un titular aleatorio (saltando el primero que es el nombre del feed)
         if (match && match.length > 2) {
             const index = Math.floor(Math.random() * (match.length - 1)) + 1;
             return match[index].replace(/<title>|<\/title>/g, '').split(' - ')[0];
@@ -47,7 +45,6 @@ async function obtenerNoticia() {
 async function redactarIA(idea, datos = null) {
     let prompt;
     if (datos) {
-        // Prompt para el reporte automático con Hora, Clima y Noticias
         prompt = `Eres la locutora estrella de "La Fronterísima" en Cali. 
         DATOS ACTUALES: Hora: ${datos.hora}, Clima: ${datos.temp}°C, Noticia: ${datos.noticia}.
         INSTRUCCIÓN: Crea un guion alegre de 45 palabras. Debes incluir la hora, la temperatura de Cali y mencionar la noticia. 
@@ -57,7 +54,6 @@ async function redactarIA(idea, datos = null) {
         prompt = `Idea: ${idea}. Genera un guion de locución de 40 palabras para la emisora La Fronterísima. Incluye el eslogan: "Notas surcando fronteras".`;
     }
 
-    // LÓGICA DE FAILOVER (GEMINI -> GROQ)
     try {
         console.log("🤖 Intentando con Gemini...");
         const urlGemini = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
@@ -65,7 +61,7 @@ async function redactarIA(idea, datos = null) {
         const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (texto) return limpiarTexto(texto);
     } catch (e) {
-        console.warn("⚠️ Gemini falló o tardó mucho...");
+        console.warn("⚠️ Gemini falló, saltando a Groq...");
     }
 
     try {
@@ -119,12 +115,11 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const fondoExiste = fs.existsSync("fondo.mp3");
 
     return new Promise((resolve, reject) => {
-        // Filtro amix para mezclar fondo y voz
         const cmd = (conFondo && fondoExiste)
             ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.15[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
             : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
 
-        exec(cmd, async (err, stdout, stderr) => {
+        exec(cmd, async (err) => {
             if (err) return reject("FFmpeg Error");
             try {
                 const form = new FormData();
@@ -145,8 +140,23 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     });
 }
 
-// ======= 5. RUTAS Y AUTOMATIZACIÓN =======
+// ======= 5. RUTAS DE API =======
 app.get("/health", (req, res) => res.status(200).send("LIVE"));
+
+app.post("/redactar-guion", async (req, res) => {
+    const guion = await redactarIA(req.body.idea);
+    res.json({ guion });
+});
+
+app.post("/procesar-locucion", async (req, res) => {
+    const { texto, nombreArchivo, conFondo } = req.body;
+    const pathVoz = `v_${Date.now()}.mp3`;
+    try {
+        await generarVoz(texto, pathVoz);
+        await producirYSubir(pathVoz, nombreArchivo, conFondo);
+        res.send("OK");
+    } catch (e) { res.status(500).send(e.toString()); }
+});
 
 async function autoReporte() {
     console.log("🎙️ Iniciando ciclo completo: Hora + Clima + Noticias...");
@@ -165,7 +175,7 @@ async function autoReporte() {
         
         await generarVoz(guion, pathAuto);
         await producirYSubir(pathAuto, "reporte_cali.mp3", true);
-        console.log(`✅ Ciclo exitoso. Hora: ${datos.hora}. Noticia: ${noticiaFresca.substring(0, 30)}...`);
+        console.log(`✅ Ciclo exitoso. Hora: ${datos.hora}.`);
     } catch (e) { 
         console.error("❌ Fallo en ciclo automático:", e.message); 
     }
@@ -176,9 +186,8 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Servidor Pro de La Fronterísima en puerto ${PORT}`);
     
-    // Esperamos 60 segundos para el primer reporte para asegurar que el Health Check de Koyeb pase
     setTimeout(() => {
         autoReporte();
-        setInterval(autoReporte, 15 * 60 * 1000); // Cada 15 minutos
+        setInterval(autoReporte, 15 * 60 * 1000); 
     }, 60000); 
 });
