@@ -10,6 +10,10 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
+// ======= CONEXIÓN CON EL FRONTEND (Carpeta Public) =======
+// Esta línea permite que al entrar a la URL se cargue tu index.html
+app.use(express.static(path.join(__dirname, "public")));
+
 // ======= CONFIGURACIÓN DE LLAVES =======
 const KEYS = {
     GEMINI: process.env.GOOGLE_API_KEY,
