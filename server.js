@@ -92,9 +92,9 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `final_${Date.now()}.mp3`;
     return new Promise((resolve, reject) => {
         // Ajustamos volúmenes: fondo 15%, voz 140% con compresión (sidechain)
-        const comando = (conFondo && fs.existsSync("fondo.mp3"))
-            ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.15[bg];[1:a]volume=1.4[v];[bg][v]sidechaincompress=threshold=0.1:ratio=15[out]" -map "[out]" -shortest -c:a libmp3lame -b:a 128k ${tempSalida}`
-            : `ffmpeg -y -i ${archivoVoz} -af "volume=1.3" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+       const comando = (conFondo && fs.existsSync("fondo.mp3"))
+    ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.12[bg];[1:a]volume=1.5,bass=g=3[v];[bg][v]sidechaincompress=threshold=0.05:ratio=20:attack=10:release=500[out]" -map "[out]" -shortest -c:a libmp3lame -b:a 128k ${tempSalida}`
+    : `ffmpeg -y -i ${archivoVoz} -af "volume=1.4,bass=g=3" -c:a libmp3lame -b:a 128k ${tempSalida}`;
 
         exec(comando, async (err) => {
             if (err) return reject("Error FFmpeg: " + err);
