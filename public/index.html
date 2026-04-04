@@ -115,35 +115,34 @@
             }
         }
 
-        async function producir() {
-            const texto = document.getElementById('guion').value;
-            const nombre = document.getElementById('filename').value || "locucion_" + Date.now();
-            const conFondo = document.getElementById('conFondo').checked;
+    async function producir() {
+    const texto = document.getElementById('guion').value;
+    const conFondo = document.getElementById('conFondo').checked;
 
-            if(!texto) return showStatus("⚠️ El guion está vacío", "text-orange-400");
+    if(!texto) return showStatus("⚠️ El guion está vacío", "text-orange-400");
 
-            showStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='refresh-cw' class='animate-spin w-3 h-3'></i> Procesando audio y subiendo...</div>");
+    showStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='refresh-cw' class='animate-spin w-3 h-3'></i> Actualizando audio en Azura...</div>");
 
-            try {
-                const res = await fetch('/procesar-locucion', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ 
-                        texto, 
-                        nombreArchivo: nombre.endsWith('.mp3') ? nombre : nombre + ".mp3", 
-                        conFondo 
-                    })
-                });
+    try {
+        const res = await fetch('/procesar-locucion', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                texto, 
+                conFondo // Ya no enviamos nombreArchivo
+            })
+        });
 
-                if(res.ok) {
-                    showStatus("🚀 ¡ÉXITO! El audio ya está en tu estación", "text-green-400");
-                } else {
-                    showStatus("❌ Falló la producción del audio", "text-red-400");
-                }
-            } catch (e) {
-                showStatus("❌ Error de red", "text-red-400");
-            }
+        if(res.ok) {
+            showStatus("🚀 ¡ACTUALIZADO! Archivo 'intervencion_manual.mp3' reemplazado", "text-green-400");
+        } else {
+            showStatus("❌ Falló la actualización", "text-red-400");
         }
+    } catch (e) {
+        showStatus("❌ Error de red", "text-red-400");
+    }
+}
+        
     </script>
 </body>
 </html>
