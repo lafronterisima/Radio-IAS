@@ -119,14 +119,21 @@ app.post("/redactar-guion", async (req, res) => {
     res.json({ guion });
 });
 
+
 app.post("/procesar-locucion", async (req, res) => {
-    const { texto, nombreArchivo, conFondo } = req.body;
+    const { texto, conFondo } = req.body; // Quitamos nombreArchivo de aquí
+    const nombreFijo = "intervencion_manual.mp3"; // Nombre que siempre se reemplazará
     const pathVoz = `v_${Date.now()}.mp3`;
+
     try {
         await generarVoz(texto, pathVoz);
-        await producirYSubir(pathVoz, nombreArchivo, conFondo);
+        // Ahora siempre subirá como 'intervencion_manual.mp3'
+        await producirYSubir(pathVoz, nombreFijo, conFondo);
         res.send("OK");
-    } catch (e) { res.status(500).send(e.toString()); }
+    } catch (e) { 
+        console.error("Error manual:", e);
+        res.status(500).send(e.toString()); 
+    }
 });
 
 // ======= 6. AUTOMATIZACIÓN (CADA 15 MINUTOS) =======
