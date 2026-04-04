@@ -1,110 +1,106 @@
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel de Control | La Fronterísima</title>
+    <title>La Fronterísima | Panel Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        .bg-brand-blue { background-color: #4A86E8; }
-        .text-brand-blue { color: #4A86E8; }
-        .border-brand-blue { border-color: #4A86E8; }
-        .focus-ring:focus { border-color: #4A86E8; ring-color: #4A86E8; }
-        
-        /* Animación suave para botones */
-        .btn-active:active { transform: scale(0.98); }
+        body { background-color: #000000; }
+        .bg-fronterisima { background-color: #4A86E8; }
+        .text-fronterisima { color: #4A86E8; }
+        .border-fronterisima { border-color: #4A86E8; }
+        .shadow-blue { shadow-color: rgba(74, 134, 232, 0.2); }
     </style>
 </head>
-<body class="bg-black text-slate-100 font-sans min-h-screen flex items-center justify-center p-4">
+<body class="text-slate-200 font-sans min-h-screen flex items-center justify-center p-4">
 
     <div class="w-full max-w-xl bg-slate-900 rounded-3xl shadow-2xl border border-slate-800 overflow-hidden">
         
-        <div class="p-6 text-center border-b border-slate-800 bg-slate-900/50">
-            <h1 class="text-3xl font-black tracking-tighter uppercase italic">
-                La <span class="text-brand-blue">Fronterísima</span>
+        <div class="p-8 text-center bg-gradient-to-b from-slate-800/50 to-transparent">
+            <h1 class="text-4xl font-black tracking-tighter uppercase italic mb-1">
+                La <span class="text-fronterisima">Fronterísima</span>
             </h1>
-            <p class="text-slate-500 text-xs mt-1 font-bold tracking-widest uppercase">Notas surcando fronteras</p>
+            <p class="text-slate-500 text-[10px] font-bold tracking-[0.2em] uppercase">Notas surcando fronteras</p>
         </div>
 
-        <div class="p-6 space-y-5">
+        <div class="p-6 space-y-6">
             
-            <div>
-                <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 ml-1">Instrucción para la IA</label>
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Concepto para la IA</label>
                 <div class="relative">
-                    <i data-lucide="sparkles" class="absolute left-4 top-3.5 text-brand-blue w-5 h-5"></i>
+                    <i data-lucide="wand-2" class="absolute left-4 top-3.5 text-fronterisima w-5 h-5"></i>
                     <input type="text" id="idea" 
-                        class="w-full bg-black border border-slate-800 rounded-2xl py-3.5 pl-12 pr-4 focus:outline-none focus:border-brand-blue transition-all placeholder:text-slate-700" 
-                        placeholder="Ej: Saluda a la gente de Cali en este sábado rumbero...">
+                        class="w-full bg-black border border-slate-800 rounded-2xl py-4 pl-12 pr-4 focus:outline-none focus:border-fronterisima transition-all placeholder:text-slate-700" 
+                        placeholder="Ej: Saluda a la gente del barrio Siloé...">
                 </div>
             </div>
 
             <button onclick="redactar()" id="btn-redactar"
-                class="btn-active w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-3 rounded-2xl flex items-center justify-center gap-2 transition-all border border-slate-700">
-                <i data-lucide="cpu" class="w-5 h-5 text-brand-blue"></i>
-                Generar Guion con IA
+                class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-transform active:scale-[0.98] border border-slate-700">
+                <i data-lucide="cpu" class="w-5 h-5 text-fronterisima"></i>
+                Generar Guion Inteligente
             </button>
 
-            <div>
-                <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 ml-1">Texto de Locución (Salomé)</label>
-                <textarea id="guion" rows="4" 
-                    class="w-full bg-black border border-slate-800 rounded-2xl p-4 focus:outline-none focus:border-brand-blue text-slate-300 leading-relaxed transition-all resize-none"
-                    placeholder="El texto generado aparecerá aquí..."></textarea>
+            <div class="space-y-2">
+                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Guion Final (Voz Salomé)</label>
+                <textarea id="guion" rows="5" 
+                    class="w-full bg-black border border-slate-800 rounded-2xl p-4 focus:outline-none focus:border-fronterisima text-slate-300 leading-relaxed transition-all resize-none"
+                    placeholder="El texto para la locutora aparecerá aquí..."></textarea>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 ml-1">Nombre del Archivo</label>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+                <div class="space-y-2">
+                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Nombre del Archivo</label>
                     <input type="text" id="filename" 
-                        class="w-full bg-black border border-slate-800 rounded-xl p-3 text-sm focus:outline-none focus:border-brand-blue" 
-                        placeholder="ej: saludo_caleño">
+                        class="w-full bg-black border border-slate-800 rounded-xl p-3 text-sm focus:outline-none focus:border-fronterisima" 
+                        placeholder="ej: promo_cali">
                 </div>
-                <div class="flex items-center justify-center sm:justify-start pt-4 sm:pt-6">
+                <div class="pb-3 flex justify-center sm:justify-start">
                     <label class="flex items-center gap-3 cursor-pointer group">
-                        <input type="checkbox" id="conFondo" checked class="w-5 h-5 rounded border-slate-800 bg-black text-brand-blue focus:ring-brand-blue accent-brand-blue">
-                        <span class="text-sm text-slate-400 group-hover:text-slate-200 transition-colors italic">¿Incluir fondo musical?</span>
+                        <input type="checkbox" id="conFondo" checked class="w-5 h-5 rounded border-slate-800 bg-black text-fronterisima focus:ring-fronterisima accent-fronterisima">
+                        <span class="text-sm text-slate-400 group-hover:text-slate-200 transition-colors italic">¿Fondo Musical?</span>
                     </label>
                 </div>
             </div>
 
             <button onclick="producir()" id="btn-producir"
-                class="btn-active w-full bg-brand-blue hover:bg-blue-500 text-black font-black text-lg py-5 rounded-2xl shadow-lg shadow-blue-500/10 flex items-center justify-center gap-3 transition-all">
-                <i data-lucide="mic-2" class="w-6 h-6"></i>
-                PRODUCIR Y SUBIR A AZURA
+                class="w-full bg-fronterisima hover:bg-blue-500 text-black font-black text-xl py-6 rounded-3xl shadow-lg shadow-blue-500/10 flex items-center justify-center gap-3 transition-all active:scale-[0.97]">
+                <i data-lucide="mic" class="w-7 h-7"></i>
+                GRABAR Y SUBIR A AZURA
             </button>
 
-            <div id="status" class="text-center text-xs font-bold min-h-[20px] transition-all">
-                </div>
+            <div id="status" class="text-center text-xs font-bold min-h-[24px]"></div>
 
         </div>
 
-        <div class="bg-black/40 p-4 border-t border-slate-800 flex justify-between items-center px-6">
+        <div class="bg-black/50 p-4 border-t border-slate-800 flex justify-between items-center px-8">
             <div class="flex items-center gap-2">
-                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse shadow-[0_0_8px_#22c55e]"></div>
-                <span class="text-[9px] uppercase font-black text-slate-500 tracking-tighter">Status: Online</span>
+                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span class="text-[9px] font-black text-slate-500 uppercase">Sistema Operativo</span>
             </div>
-            <span class="text-[9px] text-slate-600 font-mono italic">v1.5 PRO - Cali, Colombia</span>
+            <span class="text-[9px] text-slate-600 font-mono italic tracking-tighter">LA FRONTERISIMA V1.5 PRO / CALI, CO</span>
         </div>
     </div>
 
     <script>
-        // Inicializar iconos de Lucide
         lucide.createIcons();
-
         const statusDiv = document.getElementById('status');
 
-        function updateStatus(msg, colorClass = 'text-brand-blue') {
+        function showStatus(msg, color = 'text-fronterisima') {
             statusDiv.innerHTML = msg;
-            statusDiv.className = `text-center text-xs font-bold min-h-[20px] transition-all ${colorClass}`;
+            statusDiv.className = `text-center text-xs font-bold min-h-[24px] ${color}`;
             lucide.createIcons();
         }
 
         async function redactar() {
             const idea = document.getElementById('idea').value;
-            if(!idea) return updateStatus("⚠️ Por favor escribe una idea primero", "text-yellow-500");
+            if(!idea) return showStatus("⚠️ Escribe una idea para la IA", "text-orange-400");
 
-            updateStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='loader-2' class='animate-spin w-3 h-3'></i> Redactando con IA...</div>");
-            
+            showStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='loader-2' class='animate-spin w-3 h-3'></i> Redactando guion...</div>");
+
             try {
                 const res = await fetch('/redactar-guion', {
                     method: 'POST',
@@ -113,9 +109,9 @@
                 });
                 const data = await res.json();
                 document.getElementById('guion').value = data.guion;
-                updateStatus("✅ Guion listo para locución", "text-green-500");
+                showStatus("✨ Guion listo para procesar", "text-green-400");
             } catch (e) {
-                updateStatus("❌ Error conectando con el servidor", "text-red-500");
+                showStatus("❌ Error conectando al servidor", "text-red-400");
             }
         }
 
@@ -124,9 +120,9 @@
             const nombre = document.getElementById('filename').value || "locucion_" + Date.now();
             const conFondo = document.getElementById('conFondo').checked;
 
-            if(!texto) return updateStatus("⚠️ No hay texto para procesar", "text-yellow-500");
+            if(!texto) return showStatus("⚠️ El guion está vacío", "text-orange-400");
 
-            updateStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='refresh-cw' class='animate-spin w-3 h-3'></i> Generando audio y subiendo...</div>");
+            showStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='refresh-cw' class='animate-spin w-3 h-3'></i> Procesando audio y subiendo...</div>");
 
             try {
                 const res = await fetch('/procesar-locucion', {
@@ -140,14 +136,12 @@
                 });
 
                 if(res.ok) {
-                    updateStatus("🔥 ¡ÉXITO! El audio ya está en AzuraCast", "text-green-500");
-                    // Limpiar campos tras éxito opcional
-                    // document.getElementById('guion').value = "";
+                    showStatus("🚀 ¡ÉXITO! El audio ya está en tu estación", "text-green-400");
                 } else {
-                    updateStatus("❌ Error en el proceso de audio", "text-red-500");
+                    showStatus("❌ Falló la producción del audio", "text-red-400");
                 }
             } catch (e) {
-                updateStatus("❌ Error de red al subir", "text-red-500");
+                showStatus("❌ Error de red", "text-red-400");
             }
         }
     </script>
