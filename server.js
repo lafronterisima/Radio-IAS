@@ -10,11 +10,9 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
-// ======= CONEXIÓN CON EL FRONTEND (Carpeta Public) =======
-// Esta línea permite que al entrar a la URL se cargue tu index.html
+// ======= 1. CONEXIÓN CON EL FRONTEND (Carpeta Public) =======
 app.use(express.static(path.join(__dirname, "public")));
 
-// ======= CONFIGURACIÓN DE LLAVES =======
 const KEYS = {
     GEMINI: process.env.GOOGLE_API_KEY,
     GROQ: process.env.GROQ_API_KEY,
@@ -26,121 +24,94 @@ const KEYS = {
 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
-// ======= 1. OBTENER NOTICIAS REALES (RSS) =======
+// ======= 2. OBTENER NOTICIAS (RSS) =======
 async function obtenerNoticia() {
     try {
         const res = await axios.get("https://news.google.com/rss/search?q=Colombia+Cali&hl=es-419&gl=CO&ceid=CO:es-419");
         const match = res.data.match(/<title>([^<]+)<\/title>/g);
         if (match && match.length > 2) {
-            const index = Math.floor(Math.random() * (match.length - 1)) + 1;
+            const index = Math.floor(Math.random() * (match.length - 2)) + 1;
             return match[index].replace(/<title>|<\/title>/g, '').split(' - ')[0];
         }
-        return "El mundo sigue girando con la mejor energía.";
-    } catch (e) {
-        return "Nuevas tendencias en tecnología y música surcan las fronteras.";
-    }
+        return "Cali sigue vibrando con la mejor energía rumbera.";
+    } catch (e) { return "Notas surcando fronteras con la mejor música."; }
 }
 
-// ======= 2. NÚCLEO DE INTELIGENCIA (FAILOVER) =======
+// ======= 3. INTELIGENCIA ARTIFICIAL (FAILOVER) =======
 async function redactarIA(idea, datos = null) {
     let prompt;
     if (datos) {
-        prompt = `Eres la locutora estrella de "La Fronterísima" en Cali. 
-        DATOS ACTUALES: Hora: ${datos.hora}, Clima: ${datos.temp}°C, Noticia: ${datos.noticia}.
-        INSTRUCCIÓN: Crea un guion alegre de 45 palabras. Debes incluir la hora, la temperatura de Cali y mencionar la noticia. 
-        Termina siempre con el eslogan: "Notas surcando fronteras". 
-        SOLO responde con el texto de locución, sin títulos ni etiquetas.`;
+        prompt = `Eres la locutora estrella de "La Fronterísima". Hora en Cali: ${datos.hora}, Temp: ${datos.temp}°C, Noticia: ${datos.noticia}. 
+        Instrucción: Crea un guion alegre de 45 palabras. Incluye la hora, clima de Cali y la noticia. 
+        Termina con el eslogan: "Notas surcando fronteras". SOLO texto, sin etiquetas.`;
     } else {
-        prompt = `Idea: ${idea}. Genera un guion de locución de 40 palabras para la emisora La Fronterísima. Incluye el eslogan: "Notas surcando fronteras".`;
+        prompt = `Idea: ${idea}. Genera un guion alegre de 40 palabras para La Fronterísima. Incluye el eslogan: "Notas surcando fronteras".`;
     }
 
+    // INTENTO 1: GEMINI
     try {
-        console.log("🤖 Intentando con Gemini...");
-        const urlGemini = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-        const res = await axios.post(urlGemini, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
+        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
         const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (texto) return limpiarTexto(texto);
-    } catch (e) {
-        console.warn("⚠️ Gemini falló, saltando a Groq...");
-    }
+    } catch (e) { console.warn("⚠️ Gemini falló, saltando a Groq..."); }
 
+    // INTENTO 2: GROQ
     try {
-        console.log("⚡ Usando Respaldo: Groq Cloud (Llama 3.1)");
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
             model: "llama-3.1-8b-instant",
-            messages: [
-                { role: "system", content: "Locutora profesional colombiana. Natural, alegre y concisa." },
-                { role: "user", content: prompt }
-            ]
+            messages: [{ role: "system", content: "Locutora colombiana alegre." }, { role: "user", content: prompt }]
         }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
         return limpiarTexto(res.data?.choices?.[0]?.message?.content);
-    } catch (e) {
-        return `Son las ${datos?.hora || 'un nuevo momento'} en Cali, con ${datos?.temp || 'un clima increíble'} grados. Notas surcando fronteras.`;
-    }
+    } catch (e) { return "Sintonizas La Fronterísima, desde Cali, notas surcando fronteras."; }
 }
 
 function limpiarTexto(t) {
-    return t.replace(/[*#_]/g, '')
-            .replace(/Locutor:|Guion:|Respuesta:|Locutora:|Titular:|Noticia:/gi, '')
-            .trim();
+    return t.replace(/[*#_]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:/gi, '').trim();
 }
 
-// ======= 3. SÍNTESIS DE VOZ (AZURE) =======
+// ======= 4. VOZ Y PRODUCCIÓN (AZURE + FFMPEG) =======
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
-        const speechConfig = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
-        speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural"; 
-        const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
-        
+        const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
+        config.speechSynthesisVoiceName = "es-CO-SalomeNeural"; 
+        const synth = new sdk.SpeechSynthesizer(config);
         const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="es-CO">
             <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.4">
-            <prosody rate="+8%" pitch="+2%">${texto}</prosody></mstts:express-as></voice></speak>`;
-
-        synthesizer.speakSsmlAsync(ssml, result => {
-            if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-                fs.writeFileSync(archivoDestino, Buffer.from(result.audioData));
-                synthesizer.close();
-                resolve();
-            } else {
-                synthesizer.close();
-                reject("Error TTS Azure");
-            }
-        }, err => { synthesizer.close(); reject(err); });
+            <prosody rate="+8%">${texto}</prosody></mstts:express-as></voice></speak>`;
+        synth.speakSsmlAsync(ssml, r => {
+            if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+                fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
+                synth.close(); resolve();
+            } else { synth.close(); reject("Error TTS"); }
+        }, e => { synth.close(); reject(e); });
     });
 }
 
-// ======= 4. PRODUCCIÓN (FFMPEG) Y SUBIDA =======
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
     const fondoExiste = fs.existsSync("fondo.mp3");
-
     return new Promise((resolve, reject) => {
         const cmd = (conFondo && fondoExiste)
             ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.15[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
             : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
-
         exec(cmd, async (err) => {
             if (err) return reject("FFmpeg Error");
             try {
                 const form = new FormData();
                 form.append('file', fs.createReadStream(tempSalida), { filename: nombreFinal });
                 form.append('path', nombreFinal);
-
                 await axios.post(AZURA_API_UPLOAD, form, {
                     headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }
                 });
-
                 [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
                 resolve();
-            } catch (e) {
-                if (fs.existsSync(tempSalida)) fs.unlinkSync(tempSalida);
-                reject("Error Subida Azura");
-            }
+            } catch (e) { reject("Error Azura"); }
         });
     });
 }
 
-// ======= 5. RUTAS DE API =======
+// ======= 5. RUTAS PARA EL PANEL MANUAL =======
 app.get("/health", (req, res) => res.status(200).send("LIVE"));
 
 app.post("/redactar-guion", async (req, res) => {
@@ -158,34 +129,29 @@ app.post("/procesar-locucion", async (req, res) => {
     } catch (e) { res.status(500).send(e.toString()); }
 });
 
+// ======= 6. AUTOMATIZACIÓN (CADA 15 MINUTOS) =======
 async function autoReporte() {
-    console.log("🎙️ Iniciando ciclo completo: Hora + Clima + Noticias...");
+    console.log("🎙️ Generando reporte automático...");
     try {
         const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
-        const noticiaFresca = await obtenerNoticia();
-        
+        const noticia = await obtenerNoticia();
         const datos = { 
             hora: new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' }),
             temp: Math.round(clim.data.current_weather.temperature),
-            noticia: noticiaFresca
+            noticia
         };
-
         const guion = await redactarIA(null, datos);
         const pathAuto = `v_auto.mp3`;
-        
         await generarVoz(guion, pathAuto);
         await producirYSubir(pathAuto, "reporte_cali.mp3", true);
-        console.log(`✅ Ciclo exitoso. Hora: ${datos.hora}.`);
-    } catch (e) { 
-        console.error("❌ Fallo en ciclo automático:", e.message); 
-    }
+        console.log(`✅ Auto-Reporte exitoso (${datos.hora})`);
+    } catch (e) { console.error("❌ Error Auto-Reporte:", e.message); }
 }
 
-// ======= 6. ARRANQUE =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Servidor Pro de La Fronterísima en puerto ${PORT}`);
-    
+    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
+    // Delay de 1 min para el primer reporte para no bloquear el inicio en Koyeb
     setTimeout(() => {
         autoReporte();
         setInterval(autoReporte, 15 * 60 * 1000); 
