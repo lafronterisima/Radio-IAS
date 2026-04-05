@@ -10,6 +10,20 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
+// Ruta para validar la clave
+app.post('/login', (req, res) => {
+    const { password } = req.body;
+    
+    // process.env.APP_PASSWORD es la que pusiste en el panel de Koyeb
+    const secretKey = process.env.APP_PASSWORD; 
+
+    if (password === secretKey) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ success: false, message: "Clave incorrecta" });
+    }
+});
+
 // ======= 1. CONEXIÓN CON EL FRONTEND (Carpeta Public) =======
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -154,20 +168,6 @@ async function autoReporte() {
         console.log(`✅ Auto-Reporte exitoso (${datos.hora})`);
     } catch (e) { console.error("❌ Error Auto-Reporte:", e.message); }
 }
-
-// Ruta para validar la clave
-app.post('/login', (req, res) => {
-    const { password } = req.body;
-    
-    // process.env.APP_PASSWORD es la que pusiste en el panel de Koyeb
-    const secretKey = process.env.APP_PASSWORD; 
-
-    if (password === secretKey) {
-        res.json({ success: true });
-    } else {
-        res.status(401).json({ success: false, message: "Clave incorrecta" });
-    }
-});
 
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
