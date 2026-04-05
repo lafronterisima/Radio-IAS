@@ -33,7 +33,7 @@ async function obtenerNoticia() {
             const index = Math.floor(Math.random() * (match.length - 2)) + 1;
             return match[index].replace(/<title>|<\/title>/g, '').split(' - ')[0];
         }
-        return "Cali sigue vibrando con la mejor energía rumbera.";
+        return "Sigue vibrando con la mejor energía rumbera.";
     } catch (e) { return "Notas surcando fronteras con la mejor música."; }
 }
 
@@ -41,16 +41,16 @@ async function obtenerNoticia() {
 async function redactarIA(idea, datos = null) {
     let prompt;
     if (datos) {
-        prompt = `Eres la locutora estrella de "La Fronterísima". Hora en Cali: ${datos.hora}, Temp: ${datos.temp}°C, Noticia: ${datos.noticia}. 
-        Instrucción: Crea un guion alegre de 45 palabras. Incluye la hora, clima de Cali y la noticia. 
-        Termina con el eslogan: "Notas surcando fronteras". SOLO texto, sin etiquetas.`;
+        prompt = `Eres locutor estrella de "La Fronterísima". Hora en Colombia: ${datos.hora}, Temp: ${datos.temp}°C, Noticia: ${datos.noticia}. 
+        Instrucción: Crea un guion alegre de 45 palabras. Incluye la hora, clima y la noticia. 
+        Termina con el eslogan: "La Fronterisima, notas surcando fronteras". SOLO texto, sin etiquetas.`;
     } else {
-        prompt = `Idea: ${idea}. Genera un guion alegre de 40 palabras para La Fronterísima. Incluye el eslogan: "Notas surcando fronteras".`;
+        prompt = `Idea: ${idea}. Genera un guion alegre de 40 palabras para La Fronterísima. Incluye el eslogan: "La Fronterisima, notas surcando fronteras".`;
     }
 
     // INTENTO 1: GEMINI
     try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${KEYS.GEMINI}`;
         const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
         const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (texto) return limpiarTexto(texto);
@@ -63,7 +63,7 @@ async function redactarIA(idea, datos = null) {
             messages: [{ role: "system", content: "Locutora colombiana alegre." }, { role: "user", content: prompt }]
         }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
         return limpiarTexto(res.data?.choices?.[0]?.message?.content);
-    } catch (e) { return "Sintonizas La Fronterísima, desde Cali, notas surcando fronteras."; }
+    } catch (e) { return "Sintonizas La Fronterísima, notas surcando fronteras."; }
 }
 
 function limpiarTexto(t) {
@@ -121,8 +121,8 @@ app.post("/redactar-guion", async (req, res) => {
 
 
 app.post("/procesar-locucion", async (req, res) => {
-    const { texto, conFondo } = req.body; // Quitamos nombreArchivo de aquí
-    const nombreFijo = "intervencion_manual.mp3"; // Nombre que siempre se reemplazará
+    const { texto, conFondo } = req.body; // Quitamos nombre archivo de aquí
+    const nombreFijo = "Redactor_ia.mp3"; // Nombre que siempre se reemplazará
     const pathVoz = `v_${Date.now()}.mp3`;
 
     try {
@@ -150,7 +150,7 @@ async function autoReporte() {
         const guion = await redactarIA(null, datos);
         const pathAuto = `v_auto.mp3`;
         await generarVoz(guion, pathAuto);
-        await producirYSubir(pathAuto, "reporte_cali.mp3", true);
+        await producirYSubir(pathAuto, "dj_auto.mp3", true);
         console.log(`✅ Auto-Reporte exitoso (${datos.hora})`);
     } catch (e) { console.error("❌ Error Auto-Reporte:", e.message); }
 }
