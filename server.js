@@ -42,9 +42,10 @@ const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}
 async function obtenerNoticia() {
     try {
         // Nueva URL de Euronews Mundo
-        const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo", {
-            timeout: 5000 // Evita que el proceso se cuelgue si el servidor tarda
-        });
+     const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo", {
+       headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Radio-Bot)' },
+       timeout: 5000
+  });
 
         // Extraemos todos los títulos. 
         // Nota: El primer <title> suele ser el nombre del canal ("Euronews Mundo"), lo saltamos.
