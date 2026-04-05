@@ -1,12 +1,8 @@
 
-# 🎙️ IA DJ Web Service
-
-Servicio de radio automatizada con inteligencia artificial que genera locuciones con:
+# 🎙️ DJ Web Service
 
 - 🌤️ Clima en tiempo real (OpenWeather)
-- 🎵 Canción actual (AzuraCast)
-- 📰 Noticias recientes (Euronews RSS)
-- 🗣️ Voz generada con Azure TTS
+- 🎵 Canción actual
 - 🎚️ Mezcla de audio automática
 
 ---
@@ -16,4 +12,4 @@ Servicio de radio automatizada con inteligencia artificial que genera locuciones
 ```bash
 git clone https://github.com/TU_USUARIO/ia-dj.git
 cd ia-dj
-npm install
+n ins
