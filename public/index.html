@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>La Fronterísima | Panel Pro</title>
+    <title>La Fronterísima | Acceso</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
@@ -12,80 +11,97 @@
         .bg-fronterisima { background-color: #4A86E8; }
         .text-fronterisima { color: #4A86E8; }
         .border-fronterisima { border-color: #4A86E8; }
-        .shadow-blue { shadow-color: rgba(74, 134, 232, 0.2); }
+        .hidden { display: none; }
     </style>
 </head>
 <body class="text-slate-200 font-sans min-h-screen flex items-center justify-center p-4">
 
-    <div class="w-full max-w-xl bg-slate-900 rounded-3xl shadow-2xl border border-slate-800 overflow-hidden">
+    <div id="login-screen" class="w-full max-w-sm bg-slate-900 rounded-3xl p-8 border border-slate-800 shadow-2xl text-center">
+        <h2 class="text-xl font-black italic uppercase text-fronterisima mb-6">Acceso Privado</h2>
+        <div class="space-y-4">
+            <input type="password" id="access-key" 
+                class="w-full bg-black border border-slate-800 rounded-2xl py-4 px-6 focus:outline-none focus:border-fronterisima text-center tracking-[0.5em]" 
+                placeholder="••••••">
+            <button onclick="checkAccess()" 
+                class="w-full bg-fronterisima text-black font-black py-4 rounded-2xl hover:bg-blue-500 transition-all">
+                ENTRAR
+            </button>
+            <p id="error-msg" class="text-red-500 text-xs font-bold hidden">Clave incorrecta. Intenta de nuevo.</p>
+        </div>
+    </div>
+
+    <div id="panel-contenido" class="w-full max-w-xl bg-slate-900 rounded-3xl shadow-2xl border border-slate-800 overflow-hidden hidden">
         
         <div class="p-6 text-center bg-gradient-to-b from-slate-800/50 to-transparent">
-         <h1 class="text-2xl font-black tracking-tighter uppercase italic mb-0.5">
-         <span class="text-fronterisima">La Fronterísima</span>
-         </h1>
-          <p class="text-slate-500 text-[9px] font-bold tracking-[0.2em] uppercase">Notas surcando fronteras</p>
+            <h1 class="text-2xl font-black tracking-tighter uppercase italic mb-0.5">
+                <span class="text-fronterisima">La Fronterísima</span>
+            </h1>
+            <p class="text-slate-500 text-[9px] font-bold tracking-[0.2em] uppercase">Notas surcando fronteras</p>
         </div>
 
         <div class="p-6 space-y-6">
-            
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Concepto a redactar</label>
                 <div class="relative">
                     <i data-lucide="wand-2" class="absolute left-4 top-3.5 text-fronterisima w-5 h-5"></i>
-                    <input type="text" id="idea" 
-                        class="w-full bg-black border border-slate-800 rounded-2xl py-4 pl-12 pr-4 focus:outline-none focus:border-fronterisima transition-all placeholder:text-slate-700" 
-                        placeholder="Ej: Saluda a la gente del barrio Siloé...">
+                    <input type="text" id="idea" class="w-full bg-black border border-slate-800 rounded-2xl py-4 pl-12 pr-4 focus:outline-none focus:border-fronterisima transition-all placeholder:text-slate-700" placeholder="Ej: Saluda a la gente del barrio Siloé...">
                 </div>
             </div>
 
-            <button onclick="redactar()" id="btn-redactar"
-                class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-transform active:scale-[0.98] border border-slate-700">
-                <i data-lucide="cpu" class="w-5 h-5 text-fronterisima"></i>
-                Generar texto
+            <button onclick="redactar()" id="btn-redactar" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-transform active:scale-[0.98] border border-slate-700">
+                <i data-lucide="cpu" class="w-5 h-5 text-fronterisima"></i> Generar texto
             </button>
 
             <div class="space-y-2">
                 <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Guion Final (Voz Salomé)</label>
-                <textarea id="guion" rows="5" 
-                    class="w-full bg-black border border-slate-800 rounded-2xl p-4 focus:outline-none focus:border-fronterisima text-slate-300 leading-relaxed transition-all resize-none"
-                    placeholder="El texto para la locutora aparecerá aquí..."></textarea>
+                <textarea id="guion" rows="5" class="w-full bg-black border border-slate-800 rounded-2xl p-4 focus:outline-none focus:border-fronterisima text-slate-300 leading-relaxed transition-all resize-none" placeholder="El texto para la locutora aparecerá aquí..."></textarea>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-                <div class="space-y-2">
-                    <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Nombre del Archivo</label>
-                    <input type="text" id="filename" 
-                        class="w-full bg-black border border-slate-800 rounded-xl p-3 text-sm focus:outline-none focus:border-fronterisima" 
-                        placeholder="ej: promo_cali">
-                </div>
-                <div class="pb-3 flex justify-center sm:justify-start">
-                    <label class="flex items-center gap-3 cursor-pointer group">
-                        <input type="checkbox" id="conFondo" checked class="w-5 h-5 rounded border-slate-800 bg-black text-fronterisima focus:ring-fronterisima accent-fronterisima">
-                        <span class="text-sm text-slate-400 group-hover:text-slate-200 transition-colors italic">¿Fondo Musical?</span>
-                    </label>
-                </div>
-            </div>
-
-           <button onclick="producir()" id="btn-producir"
-             class="w-1/2 mx-auto bg-fronterisima hover:bg-blue-500 text-black font-black text-xl py-6 rounded-3xl shadow-lg shadow-blue-500/10 flex items-center justify-center gap-3 transition-all active:scale-[0.97]">
-             <i data-lucide="mic" class="w-7 h-7"></i> SUBIR
-           </button>
+            <button onclick="producir()" id="btn-producir" class="w-1/2 mx-auto bg-fronterisima hover:bg-blue-500 text-black font-black text-xl py-6 rounded-3xl shadow-lg shadow-blue-500/10 flex items-center justify-center gap-3 transition-all active:scale-[0.97]">
+                <i data-lucide="mic" class="w-7 h-7"></i> SUBIR
+            </button>
 
             <div id="status" class="text-center text-xs font-bold min-h-[24px]"></div>
-
-        </div>
-
-        <div class="bg-black/50 p-4 border-t border-slate-800 flex justify-between items-center px-8">
-            <div class="flex items-center gap-2">
-                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span class="text-[9px] font-black text-slate-500 uppercase">Sistema Operativo</span>
-            </div>
-            <span class="text-[9px] text-slate-600 font-mono italic tracking-tighter">LA FRONTERISIMA V2.5 / CO</span>
         </div>
     </div>
 
     <script>
         lucide.createIcons();
+        
+        // --- CONFIGURACIÓN DE LA CLAVE ---
+       async function checkAccess() {
+    const password = document.getElementById('access-key').value;
+    const errorMsg = document.getElementById('error-msg');
+    const loginScreen = document.getElementById('login-screen');
+    const panel = document.getElementById('panel-contenido');
+
+    try {
+        const res = await fetch('/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+        });
+
+        if (res.ok) {
+            // Si el servidor dice que está bien, mostramos el panel
+            loginScreen.classList.add('hidden');
+            panel.classList.remove('hidden');
+            lucide.createIcons(); // Recarga los iconos de Lucide
+        } else {
+            // Si el servidor rechaza la clave
+            errorMsg.classList.remove('hidden');
+            document.getElementById('access-key').value = "";
+        }
+    } catch (e) {
+        alert("Error de conexión con el servidor");
+    }
+}
+        // Permitir entrar presionando "Enter"
+        document.getElementById('access-key').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') checkAccess();
+        });
+
+        // --- TUS FUNCIONES ORIGINALES ---
         const statusDiv = document.getElementById('status');
 
         function showStatus(msg, color = 'text-fronterisima') {
@@ -97,9 +113,7 @@
         async function redactar() {
             const idea = document.getElementById('idea').value;
             if(!idea) return showStatus("⚠️ Escribe una idea para la IA", "text-orange-400");
-
             showStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='loader-2' class='animate-spin w-3 h-3'></i> Redactando guion...</div>");
-
             try {
                 const res = await fetch('/redactar-guion', {
                     method: 'POST',
@@ -114,35 +128,25 @@
             }
         }
 
-    async function producir() {
-    const texto = document.getElementById('guion').value;
-    const conFondo = document.getElementById('conFondo').checked;
-
-    if(!texto) return showStatus("⚠️ El guion está vacío", "text-orange-400");
-
-    showStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='refresh-cw' class='animate-spin w-3 h-3'></i> Actualizando audio en azura...</div>");
-
-    try {
-        const res = await fetch('/procesar-locucion', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ 
-                texto, 
-                conFondo // Ya no enviamos nombreArchivo
-            })
-        });
-
-        if(res.ok) {
-            showStatus("🚀 ¡ACTUALIZADO! Archivo 'Redactor_ia.mp3' reemplazado", "text-green-400");
-        } else {
-            showStatus("❌ Falló la actualización", "text-red-400");
+        async function producir() {
+            const texto = document.getElementById('guion').value;
+            if(!texto) return showStatus("⚠️ El guion está vacío", "text-orange-400");
+            showStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='refresh-cw' class='animate-spin w-3 h-3'></i> Actualizando audio...</div>");
+            try {
+                const res = await fetch('/procesar-locucion', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ texto, conFondo: true })
+                });
+                if(res.ok) {
+                    showStatus("🚀 ¡ACTUALIZADO! Archivo listo", "text-green-400");
+                } else {
+                    showStatus("❌ Falló la actualización", "text-red-400");
+                }
+            } catch (e) {
+                showStatus("❌ Error de red", "text-red-400");
+            }
         }
-    } catch (e) {
-        showStatus("❌ Error de red", "text-red-400");
-    }
-}
-        
     </script>
 </body>
 </html>
-
