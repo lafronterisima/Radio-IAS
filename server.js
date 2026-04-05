@@ -39,35 +39,34 @@ const KEYS = {
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
 // ======= 2. OBTENER NOTICIAS (RSS) =======
+
 async function obtenerNoticia() {
     try {
-        // Nueva URL de Euronews Mundo
-     const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo", {
-       headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Radio-Bot)' },
-       timeout: 5000
-  });
+        // Buscamos específicamente el tópico de Euronews en español vía Google News (Más estable)
+        const res = await axios.get("https://news.google.com/rss/search?q=source:Euronews+espanol&hl=es-419&gl=CO&ceid=CO:es-419", {
+            timeout: 5000,
+            headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Bot)' }
+        });
 
-        // Extraemos todos los títulos. 
-        // Nota: El primer <title> suele ser el nombre del canal ("Euronews Mundo"), lo saltamos.
-        const match = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
+        // Extraer títulos
+        const match = res.data.match(/<title>([^<]+)<\/title>/g);
 
-        if (match && match.length > 1) {
-            // Saltamos el índice 0 (Título del canal) y elegimos uno al azar
-            const index = Math.floor(Math.random() * (match.length - 1)) + 1;
+        if (match && match.length > 2) {
+            // Saltamos el primer título (nombre del feed)
+            const index = Math.floor(Math.random() * (match.length - 2)) + 1;
             
-            // Limpiamos etiquetas, CDATA y posibles sufijos de marca
             let noticia = match[index]
-                .replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '')
-                .split(' | ')[0]  // Euronews a veces usa " | Euronews"
+                .replace(/<title>|<\/title>/g, '') 
+                .replace(/<!\[CDATA\[|\]\]>/g, '') // Limpiar CDATA
+                .split(' - ')[0] // Quitar el " - Euronews" del final
                 .trim();
 
             return noticia;
         }
-        
-        return "Sigue vibrando con la mejor energía rumbera.";
-    } catch (e) { 
+        return "El panorama mundial sigue en movimiento con La Fronterísima.";
+    } catch (e) {
         console.error("Error en RSS Euronews:", e.message);
-        return "Notas surcando fronteras con la mejor música."; 
+        return "Noticias internacionales surcando las fronteras en este instante.";
     }
 }
 
@@ -200,7 +199,7 @@ app.listen(PORT, "0.0.0.0", () => {
 setInterval(() => {
     axios.get(`https://${process.env.KOYEB_APP_NAME || 'localhost'}.koyeb.app/health`)
         .catch(e => console.log("Self-ping para evitar sleep"));
-}, 10 * 60 * 1000); // Cada 10 min
+}, 15 * 60 * 1000); // Cada 10 min
 
     
 });
