@@ -41,14 +41,33 @@ const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}
 // ======= 2. OBTENER NOTICIAS (RSS) =======
 async function obtenerNoticia() {
     try {
-        const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo");
-        const match = res.data.match(/<title>([^<]+)<\/title>/g);
-        if (match && match.length > 2) {
-            const index = Math.floor(Math.random() * (match.length - 2)) + 1;
-            return match[index].replace(/<title>|<\/title>/g, '').split(' - ')[0];
+        // Nueva URL de Euronews Mundo
+        const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo", {
+            timeout: 5000 // Evita que el proceso se cuelgue si el servidor tarda
+        });
+
+        // Extraemos todos los títulos. 
+        // Nota: El primer <title> suele ser el nombre del canal ("Euronews Mundo"), lo saltamos.
+        const match = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
+
+        if (match && match.length > 1) {
+            // Saltamos el índice 0 (Título del canal) y elegimos uno al azar
+            const index = Math.floor(Math.random() * (match.length - 1)) + 1;
+            
+            // Limpiamos etiquetas, CDATA y posibles sufijos de marca
+            let noticia = match[index]
+                .replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '')
+                .split(' | ')[0]  // Euronews a veces usa " | Euronews"
+                .trim();
+
+            return noticia;
         }
+        
         return "Sigue vibrando con la mejor energía rumbera.";
-    } catch (e) { return "Notas surcando fronteras con la mejor música."; }
+    } catch (e) { 
+        console.error("Error en RSS Euronews:", e.message);
+        return "Notas surcando fronteras con la mejor música."; 
+    }
 }
 
 // ======= 3. INTELIGENCIA ARTIFICIAL (FAILOVER) =======
