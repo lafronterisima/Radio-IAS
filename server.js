@@ -155,6 +155,20 @@ async function autoReporte() {
     } catch (e) { console.error("❌ Error Auto-Reporte:", e.message); }
 }
 
+// Ruta para validar la clave
+app.post('/login', (req, res) => {
+    const { password } = req.body;
+    
+    // process.env.APP_PASSWORD es la que pusiste en el panel de Koyeb
+    const secretKey = process.env.APP_PASSWORD; 
+
+    if (password === secretKey) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ success: false, message: "Clave incorrecta" });
+    }
+});
+
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
