@@ -41,7 +41,7 @@ const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}
 // ======= 2. OBTENER NOTICIAS (RSS) =======
 async function obtenerNoticia() {
     try {
-        const res = await axios.get("https://news.google.com/rss/search?q=Colombia+Cali&hl=es-419&gl=CO&ceid=CO:es-419");
+        const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo");
         const match = res.data.match(/<title>([^<]+)<\/title>/g);
         if (match && match.length > 2) {
             const index = Math.floor(Math.random() * (match.length - 2)) + 1;
