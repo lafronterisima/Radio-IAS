@@ -10,13 +10,10 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
-// Ruta para validar la clave
+// ======= SISTEMA DE SEGURIDAD =======
 app.post('/login', (req, res) => {
     const { password } = req.body;
-    
-    // process.env.APP_PASSWORD es la que pusiste en el panel de Koyeb
     const secretKey = process.env.APP_PASSWORD; 
-
     if (password === secretKey) {
         res.json({ success: true });
     } else {
@@ -24,7 +21,7 @@ app.post('/login', (req, res) => {
     }
 });
 
-// ======= 1. CONEXIÓN CON EL FRONTEND (Carpeta Public) =======
+// ======= CONEXIÓN CON FRONTEND =======
 app.use(express.static(path.join(__dirname, "public")));
 
 const KEYS = {
@@ -38,34 +35,25 @@ const KEYS = {
 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
-// ======= 2. OBTENER NOTICIAS (RSS) =======
-
+// ======= 2. OBTENER NOTICIAS (EURONEWS ESTABLE) =======
 async function obtenerNoticia() {
     try {
-        // Buscamos específicamente el tópico de Euronews en español vía Google News (Más estable)
         const res = await axios.get("https://news.google.com/rss/search?q=source:Euronews+espanol&hl=es-419&gl=CO&ceid=CO:es-419", {
             timeout: 5000,
             headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Bot)' }
         });
-
-        // Extraer títulos
         const match = res.data.match(/<title>([^<]+)<\/title>/g);
-
         if (match && match.length > 2) {
-            // Saltamos el primer título (nombre del feed)
             const index = Math.floor(Math.random() * (match.length - 2)) + 1;
-            
             let noticia = match[index]
                 .replace(/<title>|<\/title>/g, '') 
-                .replace(/<!\[CDATA\[|\]\]>/g, '') // Limpiar CDATA
-                .split(' - ')[0] // Quitar el " - Euronews" del final
+                .replace(/<!\[CDATA\[|\]\]>/g, '')
+                .split(' - ')[0] 
                 .trim();
-
             return noticia;
         }
         return "El panorama mundial sigue en movimiento con La Fronterísima.";
     } catch (e) {
-        console.error("Error en RSS Euronews:", e.message);
         return "Noticias internacionales surcando las fronteras en este instante.";
     }
 }
@@ -81,15 +69,14 @@ async function redactarIA(idea, datos = null) {
         prompt = `Idea: ${idea}. Genera un guion alegre de 40 palabras para La Fronterísima. Incluye el eslogan: "La Fronterisima, notas surcando fronteras".`;
     }
 
-    // INTENTO 1: GEMINI
+    // FAILOVER: GEMINI 1.5 FLASH (Versión estable actual)
     try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${KEYS.GEMINI}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
         const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
         const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (texto) return limpiarTexto(texto);
     } catch (e) { console.warn("⚠️ Gemini falló, saltando a Groq..."); }
 
-    // INTENTO 2: GROQ
     try {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
             model: "llama-3.1-8b-instant",
@@ -103,7 +90,7 @@ function limpiarTexto(t) {
     return t.replace(/[*#_]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:/gi, '').trim();
 }
 
-// ======= 4. VOZ Y PRODUCCIÓN (AZURE + FFMPEG) =======
+// ======= 4. VOZ Y PRODUCCIÓN =======
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
         const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
@@ -144,7 +131,7 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     });
 }
 
-// ======= 5. RUTAS PARA EL PANEL MANUAL =======
+// ======= 5. RUTAS API =======
 app.get("/health", (req, res) => res.status(200).send("LIVE"));
 
 app.post("/redactar-guion", async (req, res) => {
@@ -152,21 +139,15 @@ app.post("/redactar-guion", async (req, res) => {
     res.json({ guion });
 });
 
-
 app.post("/procesar-locucion", async (req, res) => {
-    const { texto, conFondo } = req.body; // Quitamos nombre archivo de aquí
-    const nombreFijo = "Redactor_ia.mp3"; // Nombre que siempre se reemplazará
+    const { texto, conFondo } = req.body;
+    const nombreFijo = "Redactor_ia.mp3"; 
     const pathVoz = `v_${Date.now()}.mp3`;
-
     try {
         await generarVoz(texto, pathVoz);
-        // Ahora siempre subirá como 'intervencion_manual.mp3'
         await producirYSubir(pathVoz, nombreFijo, conFondo);
         res.send("OK");
-    } catch (e) { 
-        console.error("Error manual:", e);
-        res.status(500).send(e.toString()); 
-    }
+    } catch (e) { res.status(500).send(e.toString()); }
 });
 
 // ======= 6. AUTOMATIZACIÓN (CADA 15 MINUTOS) =======
@@ -191,15 +172,17 @@ async function autoReporte() {
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
-    // Delay de 1 min para el primer reporte para no bloquear el inicio en Koyeb
+    
+    // Iniciar auto-reporte tras 1 minuto
     setTimeout(() => {
         autoReporte();
-        
-// Autoping para intentar mantener viva la instancia (Plan Eco de Koyeb)
-setInterval(() => {
-    axios.get(`https://${process.env.KOYEB_APP_NAME || 'localhost'}.koyeb.app/health`)
-        .catch(e => console.log("Self-ping para evitar sleep"));
-}, 15 * 60 * 1000); // Cada 10 min
+        setInterval(autoReporte, 15 * 60 * 1000); 
+    }, 60000);
 
-    
+    // Autoping cada 10 minutos
+    setInterval(() => {
+        const appName = process.env.KOYEB_APP_NAME || 'localhost';
+        axios.get(`https://${appName}.koyeb.app/health`)
+            .catch(() => console.log("Self-ping sintonizado"));
+    }, 10 * 60 * 1000);
 });
