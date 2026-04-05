@@ -195,6 +195,12 @@ app.listen(PORT, "0.0.0.0", () => {
     // Delay de 1 min para el primer reporte para no bloquear el inicio en Koyeb
     setTimeout(() => {
         autoReporte();
-        setInterval(autoReporte, 15 * 60 * 1000); 
-    }, 60000); 
+        
+// Autoping para intentar mantener viva la instancia (Plan Eco de Koyeb)
+setInterval(() => {
+    axios.get(`https://${process.env.KOYEB_APP_NAME || 'localhost'}.koyeb.app/health`)
+        .catch(e => console.log("Self-ping para evitar sleep"));
+}, 10 * 60 * 1000); // Cada 10 min
+
+    
 });
