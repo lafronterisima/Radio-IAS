@@ -3,117 +3,214 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>La Fronterísima | Acceso</title>
+    <title>La Fronterísima | Panel de Control</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        body { background-color: #000000; }
-        .bg-fronterisima { background-color: #4A86E8; }
-        .text-fronterisima { color: #4A86E8; }
-        .border-fronterisima { border-color: #4A86E8; }
-        .hidden { display: none; }
+        :root {
+            --blue-brand: #4A86E8;
+            --dark-bg: #0f0f0f;
+            --card-bg: #1a1a1a;
+            --text-main: #ffffff;
+            --text-dim: #a0a0a0;
+            --accent-green: #4ecca3;
+            --input-bg: #252525;
+        }
+
+        body {
+            background-color: var(--dark-bg);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .hidden { display: none !important; }
+
+        /* Estilos del Panel (Copiados de tu diseño con estilo) */
+        .card {
+            background: var(--card-bg);
+            border-radius: 24px;
+            padding: 35px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+            border-top: 6px solid var(--blue-brand);
+            width: 100%;
+            max-width: 600px;
+            animation: slideUp 0.5s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header-panel { text-align: center; margin-bottom: 25px; }
+        .header-panel h1 { margin: 0; font-size: 1.8em; color: var(--blue-brand); text-transform: uppercase; font-weight: 900; italic; }
+        
+        .section-label {
+            display: block;
+            margin: 18px 0 8px;
+            font-weight: 700;
+            color: var(--blue-brand);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+        }
+
+        input[type="text"], input[type="password"], textarea {
+            width: 100%;
+            background: var(--input-bg);
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 14px;
+            color: white;
+            transition: all 0.3s ease;
+        }
+
+        input:focus, textarea:focus { outline: none; border-color: var(--blue-brand); background: #2a2a2a; }
+
+        .btn-ai { background: #5851db; color: white; font-weight: bold; border-radius: 12px; padding: 0 20px; transition: 0.3s; }
+        .btn-ai:hover:not(:disabled) { background: #4740b3; transform: scale(1.02); }
+
+        .btn-main {
+            background: var(--accent-green);
+            color: #000;
+            width: 100%;
+            font-weight: 900;
+            padding: 20px;
+            border-radius: 16px;
+            text-transform: uppercase;
+            margin-top: 20px;
+            transition: 0.3s;
+        }
+        .btn-main:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(78, 204, 163, 0.2); }
+
+        #status-box {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 0.85em;
+            display: none;
+        }
+
+        .status-loading { background: #1e293b; color: #94a3b8; display: block; }
+        .status-success { background: #064e3b; color: #6ee7b7; display: block; }
+        .status-error { background: #7f1d1d; color: #fca5a5; display: block; }
     </style>
 </head>
-<body class="text-slate-200 font-sans min-h-screen flex items-center justify-center p-4">
+<body>
 
-    <div id="login-screen" class="w-full max-w-sm bg-slate-900 rounded-3xl p-8 border border-slate-800 shadow-2xl text-center">
-        <h2 class="text-xl font-black italic uppercase text-fronterisima mb-6">Acceso Privado</h2>
+    <div id="login-screen" class="w-full max-w-sm bg-slate-900 rounded-[2rem] p-10 border border-slate-800 shadow-2xl text-center">
+        <div class="mb-8">
+            <h2 class="text-2xl font-black italic uppercase text-[#4A86E8] leading-none">Acceso Azura</h2>
+            <p class="text-slate-500 text-[10px] uppercase tracking-[0.3em] mt-2">La Fronterísima</p>
+        </div>
         <div class="space-y-4">
             <input type="password" id="access-key" 
-                class="w-full bg-black border border-slate-800 rounded-2xl py-4 px-6 focus:outline-none focus:border-fronterisima text-center tracking-[0.5em]" 
+                class="w-full bg-black border border-slate-800 rounded-2xl py-4 px-6 focus:outline-none focus:border-[#4A86E8] text-center tracking-[0.5em] text-white" 
                 placeholder="••••••">
             <button onclick="checkAccess()" 
-                class="w-full bg-fronterisima text-black font-black py-4 rounded-2xl hover:bg-blue-500 transition-all">
+                class="w-full bg-[#4A86E8] text-black font-black py-4 rounded-2xl hover:bg-blue-500 transition-all active:scale-95">
                 ENTRAR
             </button>
             <p id="error-msg" class="text-red-500 text-xs font-bold hidden">Clave incorrecta. Intenta de nuevo.</p>
         </div>
     </div>
 
-    <div id="panel-contenido" class="w-full max-w-xl bg-slate-900 rounded-3xl shadow-2xl border border-slate-800 overflow-hidden hidden">
-        
-        <div class="p-6 text-center bg-gradient-to-b from-slate-800/50 to-transparent">
-            <h1 class="text-2xl font-black tracking-tighter uppercase italic mb-0.5">
-                <span class="text-fronterisima">La Fronterísima</span>
-            </h1>
-            <p class="text-slate-500 text-[9px] font-bold tracking-[0.2em] uppercase">Notas surcando fronteras</p>
-        </div>
-
-        <div class="p-6 space-y-6">
-            <div class="space-y-2">
-                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Concepto a redactar</label>
-                <div class="relative">
-                    <i data-lucide="wand-2" class="absolute left-4 top-3.5 text-fronterisima w-5 h-5"></i>
-                    <input type="text" id="idea" class="w-full bg-black border border-slate-800 rounded-2xl py-4 pl-12 pr-4 focus:outline-none focus:border-fronterisima transition-all placeholder:text-slate-700" placeholder="Ej: Saluda a la gente del barrio Siloé...">
-                </div>
+    <div id="panel-contenido" class="container hidden">
+        <div class="card">
+            <div class="header-panel">
+                <h1>La Fronterísima</h1>
+                <p style="color: var(--text-dim); font-size: 0.8em; text-transform: uppercase; letter-spacing: 2px;">Notas surcando fronteras</p>
             </div>
 
-            <button onclick="redactar()" id="btn-redactar" class="w-full bg-slate-800 hover:bg-slate-700 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-transform active:scale-[0.98] border border-slate-700">
-                <i data-lucide="cpu" class="w-5 h-5 text-fronterisima"></i> Generar texto
-            </button>
-
-            <div class="space-y-2">
-                <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Guion Final (Voz Salomé)</label>
-                <textarea id="guion" rows="5" class="w-full bg-black border border-slate-800 rounded-2xl p-4 focus:outline-none focus:border-fronterisima text-slate-300 leading-relaxed transition-all resize-none" placeholder="El texto para la locutora aparecerá aquí..."></textarea>
+            <span class="section-label">1. ¿Qué quieres decir hoy?</span>
+            <div class="flex gap-2 mb-4">
+                <input type="text" id="ideaInput" placeholder="Texto a redactar...">
+                <button class="btn-ai" id="btnRedactar" onclick="redactarIA()">✨ Redactar</button>
             </div>
 
-            <button onclick="producir()" id="btn-producir" class="w-1/2 mx-auto bg-fronterisima hover:bg-blue-500 text-black font-black text-xl py-6 rounded-3xl shadow-lg shadow-blue-500/10 flex items-center justify-center gap-3 transition-all active:scale-[0.97]">
-                <i data-lucide="mic" class="w-7 h-7"></i> SUBIR
+            <span class="section-label">2. Guion de Locución (Gonzalo Neural)</span>
+            <textarea id="guionText" rows="4" placeholder="Aquí aparecerá el guion generado..."></textarea>
+
+            <span class="section-label">3. Configuración</span>
+            <input type="text" id="filename" placeholder="Nombre del archivo (ej: saludo_mañana)" class="mb-3">
+            
+            <label class="flex items-center gap-3 cursor-pointer p-2 hover:bg-white/5 rounded-lg transition">
+                <input type="checkbox" id="conFondo" checked class="w-4 h-4 accent-[#4A86E8]">
+                <span class="text-sm text-slate-400">Incluir cortina musical (Sidechain)</span>
+            </label>
+
+            <button class="btn-main" id="btnProduccion" onclick="procesarProduccion()">
+                🚀 SUBIR
             </button>
 
-            <div id="status" class="text-center text-xs font-bold min-h-[24px]"></div>
+            <div id="status-box"></div>
+
+            <div class="mt-8 pt-4 border-t border-white/5 flex justify-between items-center opacity-40 text-[10px] font-bold uppercase tracking-widest">
+                <span>🎙️ Voz: Gonzalo Neutro CO</span>
+                <span id="reloj-digital">00:00:00</span>
+            </div>
         </div>
     </div>
 
     <script>
-        lucide.createIcons();
-        
-        // --- CONFIGURACIÓN DE LA CLAVE ---
-       async function checkAccess() {
-    const password = document.getElementById('access-key').value;
-    const errorMsg = document.getElementById('error-msg');
-    const loginScreen = document.getElementById('login-screen');
-    const panel = document.getElementById('panel-contenido');
+        // --- LÓGICA DE ACCESO ---
+        async function checkAccess() {
+            const password = document.getElementById('access-key').value;
+            const errorMsg = document.getElementById('error-msg');
+            const loginScreen = document.getElementById('login-screen');
+            const panel = document.getElementById('panel-contenido');
 
-    try {
-        const res = await fetch('/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password })
-        });
+            try {
+                const res = await fetch('/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
 
-        if (res.ok) {
-            // Si el servidor dice que está bien, mostramos el panel
-            loginScreen.classList.add('hidden');
-            panel.classList.remove('hidden');
-            lucide.createIcons(); // Recarga los iconos de Lucide
-        } else {
-            // Si el servidor rechaza la clave
-            errorMsg.classList.remove('hidden');
-            document.getElementById('access-key').value = "";
+                if (res.ok) {
+                    loginScreen.classList.add('hidden');
+                    panel.classList.remove('hidden');
+                } else {
+                    errorMsg.classList.remove('hidden');
+                    document.getElementById('access-key').value = "";
+                }
+            } catch (e) {
+                alert("Error de conexión con el servidor");
+            }
         }
-    } catch (e) {
-        alert("Error de conexión con el servidor");
-    }
-}
-        // Permitir entrar presionando "Enter"
-        document.getElementById('access-key').addEventListener('keypress', function (e) {
+
+        document.getElementById('access-key').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') checkAccess();
         });
 
-        // --- TUS FUNCIONES ORIGINALES ---
-        const statusDiv = document.getElementById('status');
+        // --- FUNCIONES DEL PANEL ---
+        function updateReloj() {
+            const ahora = new Date();
+            document.getElementById('reloj-digital').innerText = ahora.toLocaleTimeString();
+        }
+        setInterval(updateReloj, 1000);
+        updateReloj();
 
-        function showStatus(msg, color = 'text-fronterisima') {
-            statusDiv.innerHTML = msg;
-            statusDiv.className = `text-center text-xs font-bold min-h-[24px] ${color}`;
-            lucide.createIcons();
+        function showStatus(msg, type) {
+            const statusBox = document.getElementById('status-box');
+            statusBox.innerText = msg;
+            statusBox.className = 'status-' + type;
+            statusBox.style.display = 'block';
         }
 
-        async function redactar() {
-            const idea = document.getElementById('idea').value;
-            if(!idea) return showStatus("⚠️ Escribe una idea para la IA", "text-orange-400");
-            showStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='loader-2' class='animate-spin w-3 h-3'></i> Redactando guion...</div>");
+        async function redactarIA() {
+            const idea = document.getElementById('ideaInput').value;
+            if(!idea) return alert("Escribe una idea primero.");
+
+            const btn = document.getElementById('btnRedactar');
+            btn.disabled = true;
+            showStatus("🤖 Redactando con Gemini...", "loading");
+
             try {
                 const res = await fetch('/redactar-guion', {
                     method: 'POST',
@@ -121,30 +218,47 @@
                     body: JSON.stringify({ idea })
                 });
                 const data = await res.json();
-                document.getElementById('guion').value = data.guion;
-                showStatus("✨ Guion listo para procesar", "text-green-400");
+                document.getElementById('guionText').value = data.guion;
+                showStatus("✅ Guion generado correctamente", "success");
             } catch (e) {
-                showStatus("❌ Error conectando al servidor", "text-red-400");
+                showStatus("❌ Error en la redacción", "error");
+            } finally {
+                btn.disabled = false;
             }
         }
 
-        async function producir() {
-            const texto = document.getElementById('guion').value;
-            if(!texto) return showStatus("⚠️ El guion está vacío", "text-orange-400");
-            showStatus("<div class='flex items-center justify-center gap-2'><i data-lucide='refresh-cw' class='animate-spin w-3 h-3'></i> Actualizando audio...</div>");
+        async function procesarProduccion() {
+            const texto = document.getElementById('guionText').value;
+            let nombre = document.getElementById('filename').value.trim();
+            const conFondo = document.getElementById('conFondo').checked;
+            const btn = document.getElementById('btnProduccion');
+
+            if(!texto || !nombre) return alert("Faltan datos (guion o nombre).");
+            
+            nombre = nombre.replace(/[^a-z0-9_]/gi, '_').toLowerCase();
+            if(!nombre.endsWith('.mp3')) nombre += '.mp3';
+
+            btn.disabled = true;
+            showStatus("🎙️ Procesando audio y subiendo...", "loading");
+
             try {
                 const res = await fetch('/procesar-locucion', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ texto, conFondo: true })
+                    body: JSON.stringify({ texto, nombreArchivo: nombre, conFondo })
                 });
+
                 if(res.ok) {
-                    showStatus("🚀 ¡ACTUALIZADO! Archivo listo", "text-green-400");
+                    showStatus("🚀 ¡ÉXITO! Ya está en AzuraCast", "success");
+                    document.getElementById('ideaInput').value = "";
+                    document.getElementById('filename').value = "";
                 } else {
-                    showStatus("❌ Falló la actualización", "text-red-400");
+                    throw new Error("Fallo en servidor");
                 }
             } catch (e) {
-                showStatus("❌ Error de red", "text-red-400");
+                showStatus("❌ Error: " + e.message, "error");
+            } finally {
+                btn.disabled = false;
             }
         }
     </script>
