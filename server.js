@@ -35,7 +35,7 @@ const KEYS = {
 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
-// ======= 2. OBTENER NOTICIAS (EURONEWS ESTABLE) =======
+// ======= 2. OBTENER NOTICIAS =======
 async function obtenerNoticia() {
     try {
         const res = await axios.get("https://news.google.com/rss/search?q=source:Euronews+espanol&hl=es-419&gl=CO&ceid=CO:es-419", {
@@ -58,18 +58,31 @@ async function obtenerNoticia() {
     }
 }
 
-// ======= 3. INTELIGENCIA ARTIFICIAL (FAILOVER) =======
+// ======= 3. INTELIGENCIA ARTIFICIAL (LÓGICA HÍBRIDA) =======
 async function redactarIA(idea, datos = null) {
     let prompt;
+
     if (datos) {
-        prompt = `Eres locutor estrella de "La Fronterísima". Hora en Colombia: ${datos.hora}, Temp: ${datos.temp}°C, Noticia: ${datos.noticia}. 
-        Instrucción: Crea un guion alegre de 45 palabras. Incluye la hora, clima y la noticia. 
-        Termina con el eslogan: "La Fronterisima, notas surcando fronteras". SOLO texto, sin etiquetas.`;
-    } else {
-        prompt = `Idea: ${idea}. Genera un guion alegre de 40 palabras para La Fronterísima. Incluye el eslogan: "La Fronterisima, notas surcando fronteras".`;
+        // MODO AUTOMÁTICO (REPORTES 15 MIN)
+        prompt = `Eres la locutora estrella de "La Fronterísima". Hora: ${datos.hora}, Temp: ${datos.temp}°C, Noticia: ${datos.noticia}. 
+        Crea un guion alegre de 45 palabras mencionando estos datos para Cali. 
+        Termina con: "La Fronterisima, notas surcando fronteras". SOLO texto plano.`;
+    } 
+    else if (idea && idea.trim() !== "") {
+        // MODO MANUAL (CON TEXTO)
+        prompt = `Eres la locutora de "La Fronterísima". 
+        INSTRUCCIÓN DEL DIRECTOR: ${idea}. 
+        Redacta un guion profesional y carismático basado estrictamente en esta idea. 
+        Termina con: "La Fronterisima, notas surcando fronteras". SOLO texto plano.`;
+    } 
+    else {
+        // MODO POSITIVO (BOTÓN REDACTAR VACÍO)
+        prompt = `Eres la locutora de "La Fronterísima" en Cali. 
+        Genera un mensaje corto (25 palabras) de mucha energía, buena vibra, un saludo a los oyentes 
+        o un dato curioso breve de la salsa. Termina con: "La Fronterisima, notas surcando fronteras". SOLO texto.`;
     }
 
-    // FAILOVER: GEMINI 1.5 FLASH (Versión estable actual)
+    // FAILOVER: GEMINI -> GROQ
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
         const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
@@ -83,7 +96,7 @@ async function redactarIA(idea, datos = null) {
             messages: [{ role: "system", content: "Locutora colombiana alegre." }, { role: "user", content: prompt }]
         }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
         return limpiarTexto(res.data?.choices?.[0]?.message?.content);
-    } catch (e) { return "Sintonizas La Fronterísima, notas surcando fronteras."; }
+    } catch (e) { return "Sintonizas La Fronterísima, notas surcando fronteras. ¡La mejor energía para Cali hoy!"; }
 }
 
 function limpiarTexto(t) {
@@ -112,9 +125,11 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
     const fondoExiste = fs.existsSync("fondo.mp3");
     return new Promise((resolve, reject) => {
+        // Mezcla con volumen optimizado para que la voz resalte
         const cmd = (conFondo && fondoExiste)
-            ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.15[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
+            ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.12[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
             : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+        
         exec(cmd, async (err) => {
             if (err) return reject("FFmpeg Error");
             try {
@@ -135,7 +150,8 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 app.get("/health", (req, res) => res.status(200).send("LIVE"));
 
 app.post("/redactar-guion", async (req, res) => {
-    const guion = await redactarIA(req.body.idea);
+    // Si la idea está vacía, redactarIA generará el mensaje positivo
+    const guion = await redactarIA(req.body.idea || "");
     res.json({ guion });
 });
 
@@ -150,9 +166,9 @@ app.post("/procesar-locucion", async (req, res) => {
     } catch (e) { res.status(500).send(e.toString()); }
 });
 
-// ======= 6. AUTOMATIZACIÓN (CADA 15 MINUTOS) =======
+// ======= 6. AUTOMATIZACIÓN (REPORTE DE NOTICIAS) =======
 async function autoReporte() {
-    console.log("🎙️ Generando reporte automático...");
+    console.log("🎙️ Generando reporte automático (Hora/Clima/Noticias)...");
     try {
         const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
         const noticia = await obtenerNoticia();
@@ -173,16 +189,15 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
     
-    // Iniciar auto-reporte tras 1 minuto
+    // Iniciar auto-reporte tras 1 minuto y repetir cada 15 min
     setTimeout(() => {
         autoReporte();
         setInterval(autoReporte, 15 * 60 * 1000); 
     }, 60000);
 
-    // Autoping cada 10 minutos
+    // Autoping cada 10 minutos para mantener vivo el servidor
     setInterval(() => {
         const appName = process.env.KOYEB_APP_NAME || 'localhost';
-        axios.get(`https://${appName}.koyeb.app/health`)
-            .catch(() => console.log("Self-ping sintonizado"));
+        axios.get(`https://${appName}.koyeb.app/health`).catch(() => {});
     }, 10 * 60 * 1000);
 });
