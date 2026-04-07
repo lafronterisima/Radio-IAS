@@ -127,26 +127,36 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 }
 
 // ======= 5. REPORTE AUTOMÁTICO (INDESTRUCTIBLE) =======
+
 async function autoReporte() {
-    console.log("🎙️ Iniciando reporte...");
-    let t = 18; // Default
-    let n = "Sintonía total en La Fronterísima.";
-
-    try { 
-        const c = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.30&current_weather=true", {timeout:5000});
-        t = Math.round(c.data.current_weather.temperature);
-    } catch(e) { console.warn("Usando clima default"); }
-
-    try { n = await obtenerNoticia(); } catch(e) {}
+    console.log("🎙️ Generando reporte con clima real...");
+    
+    // 1. Obtener la temperatura real primero
+    const t = await obtenerClimaReal();
+    
+    // 2. Obtener la noticia
+    let n = "El panorama nacional e internacional se mantiene en movimiento.";
+    try { n = await obtenerNoticia(); } catch(e) { console.warn("Error en noticia"); }
 
     try {
-        const guion = await redactarIA(null, { hora: new Date().toLocaleTimeString("es-CO", {hour:'2-digit', minute:'2-digit', timeZone:'America/Bogota'}), temp: t, noticia: n });
+        // 3. Pasar los datos reales a la IA
+        const guion = await redactarIA(null, { 
+            hora: new Date().toLocaleTimeString("es-CO", { 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                timeZone: 'America/Bogota' 
+            }), 
+            temp: t, // Aquí va la temperatura real
+            noticia: n 
+        });
+
         const p = `v_${Date.now()}.mp3`;
         await generarVoz(guion, p);
         await producirYSubir(p, "dj_auto.mp3", true);
-        console.log("✅ Reporte OK");
-    } catch(e) { console.error("Fallo Reporte:", e.message); }
-}
+        console.log(`✅ Reporte enviado a Azura con ${t} grados.`);
+    } catch(e) { 
+        console.error("Fallo crítico en reporte:", e.message); 
+    }
 
 // ======= INICIO =======
 const PORT = process.env.PORT || 8000;
