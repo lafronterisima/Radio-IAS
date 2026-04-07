@@ -15,6 +15,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // ======= CONFIG =======
 const KEYS = {
     GEMINI: process.env.GOOGLE_API_KEY,
+    GROQ: process.env.GROQ_API_KEY,
     AZURE: process.env.AZURE_SPEECH_KEY,
     AZURE_REGION: process.env.AZURE_REGION,
     AZURA: process.env.AZURA_KEY,
@@ -24,7 +25,7 @@ const KEYS = {
 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
-// ======= FRASES PRO =======
+// ======= FRASES =======
 const FRASES = {
     ids: [
         "Estás en La Fronterísima, la que rompe fronteras",
@@ -54,44 +55,63 @@ app.post('/login', (req, res) => {
         return res.json({ success: true });
     }
 
-    return res.status(401).json({ success: false, message: "Clave incorrecta" });
+    return res.status(401).json({ success: false });
 });
 
 // ======= NOTICIAS =======
 async function obtenerNoticia() {
     try {
-        const res = await axios.get(
-            "https://news.google.com/rss/search?q=Colombia&hl=es-419&gl=CO&ceid=CO:es-419"
-        );
-
+        const res = await axios.get("https://news.google.com/rss/search?q=Colombia&hl=es-419&gl=CO&ceid=CO:es-419");
         const match = res.data.match(/<title>([^<]+)<\/title>/g);
-        if (match && match.length > 2) {
-            return match[2].replace(/<[^>]+>/g, "").split(" - ")[0];
-        }
-
-        return "Noticias en desarrollo en este momento.";
+        return match?.[2]?.replace(/<[^>]+>/g, "").split(" - ")[0] || "Noticias en desarrollo.";
     } catch {
         return "Información en curso en Colombia.";
     }
 }
 
-// ======= IA =======
+// ======= IA (GEMINI → GROQ FALLBACK) =======
 async function redactarIA(texto) {
-    if (!texto) return randomDe(FRASES.ids);
+    const prompt = texto || `Genera un mensaje corto, energético y radial para La Fronterísima en Colombia.`;
 
+    // 1️⃣ GEMINI
     try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-        const res = await axios.post(url, {
-            contents: [{ parts: [{ text: texto }] }]
-        });
+        if (KEYS.GEMINI) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
+            const res = await axios.post(url, {
+                contents: [{ parts: [{ text: prompt }] }]
+            }, { timeout: 5000 });
 
-        return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || texto;
-    } catch {
-        return texto;
+            const t = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (t) return t;
+        }
+    } catch (e) {
+        console.warn("⚠️ Gemini falló, usando Groq...");
     }
+
+    // 2️⃣ GROQ (fallback)
+    try {
+        if (KEYS.GROQ) {
+            const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+                model: "llama-3.1-8b-instant",
+                messages: [
+                    { role: "system", content: "Locutora colombiana energética de radio." },
+                    { role: "user", content: prompt }
+                ]
+            }, {
+                headers: { Authorization: `Bearer ${KEYS.GROQ}` },
+                timeout: 5000
+            });
+
+            return res.data?.choices?.[0]?.message?.content || randomDe(FRASES.ids);
+        }
+    } catch (e) {
+        console.warn("❌ Groq también falló");
+    }
+
+    return randomDe(FRASES.ids);
 }
 
-// ======= VOZ AZURE =======
+// ======= VOZ =======
 async function generarVoz(texto, archivo) {
     return new Promise((resolve, reject) => {
         const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
@@ -124,15 +144,14 @@ async function generarVoz(texto, archivo) {
     });
 }
 
-// ======= PRODUCCIÓN + SUBIDA =======
+// ======= PRODUCCIÓN =======
 async function producirYSubir(archivo, nombreFinal, conFondo) {
     const salida = `out_${Date.now()}.mp3`;
-    const fondo = "fondo.mp3";
 
     return new Promise((resolve, reject) => {
 
-        const cmd = (conFondo && fs.existsSync(fondo))
-            ? `ffmpeg -y -i ${fondo} -i ${archivo} -filter_complex "[0:a]volume=0.08[bg];[1:a]volume=2.2[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${salida}`
+        const cmd = (conFondo && fs.existsSync("fondo.mp3"))
+            ? `ffmpeg -y -i fondo.mp3 -i ${archivo} -filter_complex "[0:a]volume=0.08[bg];[1:a]volume=2.2[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${salida}`
             : `ffmpeg -y -i ${archivo} -af "volume=1.5" -c:a libmp3lame -b:a 128k ${salida}`;
 
         exec(cmd, async (err) => {
@@ -143,14 +162,11 @@ async function producirYSubir(archivo, nombreFinal, conFondo) {
                 form.append("file", fs.createReadStream(salida), nombreFinal);
 
                 await axios.post(AZURA_API_UPLOAD, form, {
-                    headers: {
-                        ...form.getHeaders(),
-                        "X-API-Key": KEYS.AZURA
-                    }
+                    headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }
                 });
 
-                if (fs.existsSync(archivo)) fs.unlinkSync(archivo);
-                if (fs.existsSync(salida)) fs.unlinkSync(salida);
+                fs.unlinkSync(archivo);
+                fs.unlinkSync(salida);
 
                 resolve();
             } catch (e) {
@@ -162,13 +178,8 @@ async function producirYSubir(archivo, nombreFinal, conFondo) {
 
 // ======= AUTO RADIO =======
 async function autoRadio() {
-    console.log("🎙️ Generando radio...");
-
     try {
-        const clima = await axios.get(
-            "https://api.open-meteo.com/v1/forecast?latitude=4.71&longitude=-74.07&current_weather=true"
-        );
-
+        const clima = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.71&longitude=-74.07&current_weather=true");
         const noticia = await obtenerNoticia();
 
         const hora = new Date().toLocaleTimeString("es-CO", {
@@ -181,13 +192,11 @@ async function autoRadio() {
 ${randomDe(FRASES.ids)}...
 
 Son las ${hora} en Bogotá...
-Temperatura actual ${Math.round(clima.data.current_weather.temperature)} grados...
+Temperatura ${Math.round(clima.data.current_weather.temperature)} grados...
 
-Atención:
 ${noticia}...
 
 ${randomDe(FRASES.transiciones)}...
-${randomDe(FRASES.ids)} 🔥
 `;
 
         const voz = `voz_${Date.now()}.mp3`;
@@ -195,13 +204,15 @@ ${randomDe(FRASES.ids)} 🔥
         await generarVoz(texto, voz);
         await producirYSubir(voz, "dj_auto.mp3", true);
 
-        console.log("✅ Radio generada");
+        console.log("✅ Auto radio OK");
     } catch (e) {
-        console.error("❌ Error:", e.message);
+        console.error("❌ Error autoRadio:", e.message);
     }
 }
 
-// ======= ENDPOINT MANUAL =======
+// ======= RUTAS =======
+app.get("/health", (req, res) => res.send("OK"));
+
 app.post("/locucion", async (req, res) => {
     try {
         const texto = await redactarIA(req.body.texto);
@@ -216,16 +227,12 @@ app.post("/locucion", async (req, res) => {
     }
 });
 
-// ======= HEALTH =======
-app.get("/health", (req, res) => res.send("OK"));
-
-// ======= SERVIDOR =======
+// ======= SERVER =======
 const PORT = process.env.PORT || 8000;
 
 app.listen(PORT, () => {
-    console.log(`🔥 La Fronterísima PRO en puerto ${PORT}`);
+    console.log("🔥 La Fronterísima PRO corriendo");
 
-    // Auto radio cada 15 min
     setTimeout(() => {
         autoRadio();
         setInterval(autoRadio, 15 * 60 * 1000);
