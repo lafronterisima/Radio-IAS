@@ -19,7 +19,8 @@ const KEYS = {
     AZURA: process.env.AZURA_KEY,
     STATION_ID: process.env.STATION_ID || "24",
     STATION_URL: process.env.STATION_URL || "https://az.azurafree.eu",
-    PASSWORD: process.env.APP_PASSWORD
+    PASSWORD: process.env.APP_PASSWORD,
+    KOYEB_URL: "https://indirect-kelsi-lafronterisima-c6a755f2.koyeb.app"
 };
 
 const AZURA_API_UPLOAD = `${KEYS.STATION_URL}/api/station/${KEYS.STATION_ID}/files/upload`;
@@ -38,7 +39,7 @@ app.get("/health", (req, res) => res.status(200).send("LIVE"));
 // ======= 1. OBTENER CANCIÓN ACTUAL (AZURACAST) =======
 async function obtenerCancionActual() {
     try {
-        const res = await axios.get(AZURA_API_NOWPLAYING, { timeout: 3000 });
+        const res = await axios.get(AZURA_API_NOWPLAYING, { timeout: 4000 });
         const np = res.data[0]?.now_playing?.song || res.data?.now_playing?.song;
         return np ? `${np.title} de ${np.artist}` : "la mejor selección musical";
     } catch (e) {
@@ -50,7 +51,7 @@ async function obtenerCancionActual() {
 async function obtenerNoticia() {
     try {
         const res = await axios.get("https://news.google.com/rss/search?q=source:Euronews+espanol&hl=es-419&gl=CO&ceid=CO:es-419", {
-            timeout: 5000,
+            timeout: 7000,
             headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Bot)' }
         });
         const match = res.data.match(/<title>([^<]+)<\/title>/g);
@@ -73,39 +74,36 @@ async function redactarIA(idea, datos = null) {
     if (horaActual >= 18 || horaActual < 5) saludo = "Feliz noche";
 
     if (datos) {
-        // REPORTE 15 MIN (Automático)
         prompt = `Eres la locutora oficial de "La Fronterísima". Lenguaje: Español Neutro de Colombia.
         CONTEXTO: ${saludo}. Colombia registra ${datos.temp}°C. Noticia: ${datos.noticia}.
         MÚSICA: Presenta brevemente que suena "${cancion}".
         GUION: Crea una intervención de 45 palabras. Tono profesional y cálido. 
         Menciona la hora (${datos.hora}). Termina con: "La Fronterisima, notas surcando fronteras".`;
-    } 
-    else if (idea && idea.trim() !== "") {
-        // MANUAL (Desde el panel)
+    } else if (idea && idea.trim() !== "") {
         prompt = `Locutora de "La Fronterísima". Estilo Neutro Colombiano.
         IDEA: ${idea}. MÚSICA: "${cancion}".
         Redacta un guion carismático de 40 palabras integrando la idea y la canción.
         Termina con: "La Fronterisima, notas surcando fronteras".`;
-    } 
-    else {
-        // AUTOMÁTICO HORARIO (Refuerzo)
+    } else {
         prompt = `Eres la voz de "La Fronterísima". Genera un saludo institucional de 30 palabras.
         Menciona que disfrutamos de "${cancion}". Tono amable y optimista para toda Colombia.
         Termina con: "La Fronterisima, notas surcando fronteras".`;
     }
 
+    // Intento con Gemini (Timeout extendido para evitar fallos)
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
+        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 12000 });
         const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (texto) return limpiarTexto(texto);
-    } catch (e) { console.warn("⚠️ Fallo Gemini, usando respaldo..."); }
+    } catch (e) { console.warn("⚠️ Gemini lento o falló, usando Groq..."); }
 
+    // Respaldo con Groq
     try {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
             model: "llama-3.1-8b-instant",
             messages: [{ role: "system", content: "Locutora profesional colombiana, lenguaje neutro." }, { role: "user", content: prompt }]
-        }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
+        }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
         return limpiarTexto(res.data?.choices?.[0]?.message?.content);
     } catch (e) { return `Sintonizan La Fronterísima. Disfrutamos de ${cancion}. Notas surcando fronteras.`; }
 }
@@ -175,7 +173,7 @@ app.post("/procesar-locucion", async (req, res) => {
 // ======= 6. CICLOS AUTOMÁTICOS =======
 async function autoReporte() {
     try {
-        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.30&current_weather=true"); // Centro de Colombia
+        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.30&current_weather=true", { timeout: 5000 }); 
         const noticia = await obtenerNoticia();
         const datos = { 
             hora: new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' }),
@@ -205,14 +203,20 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
     
+    // Primer reporte a los 10 segundos del inicio
     setTimeout(() => {
         autoReporte();
         setInterval(autoReporte, 15 * 60 * 1000); 
         setInterval(autoManual, 60 * 60 * 1000); 
     }, 10000);
 
-    setInterval(() => {
-        const appName = process.env.KOYEB_APP_NAME || 'localhost';
-        axios.get(`https://${appName}.koyeb.app/health`).catch(() => {});
-    }, 10 * 60 * 1000);
+    // Self-Ping Mejorado para Koyeb (Evita que la instancia se detenga)
+    setInterval(async () => {
+        try {
+            await axios.get(`${KEYS.KOYEB_URL}/health`, { timeout: 5000 });
+            console.log("⚓ Self-ping: Pulso de vida enviado.");
+        } catch (e) {
+            console.warn("⚠️ Self-ping fallido, pero el servidor sigue escuchando.");
+        }
+    }, 5 * 60 * 1000); // Cada 5 minutos
 });
