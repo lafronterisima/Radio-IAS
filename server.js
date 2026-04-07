@@ -1,4 +1,5 @@
 require('dotenv').config();
+
 const express = require("express");
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
@@ -14,11 +15,11 @@ app.use(express.static(path.join(__dirname, "public")));
 // ======= CONFIG =======
 const KEYS = {
     GEMINI: process.env.GOOGLE_API_KEY,
-    GROQ: process.env.GROQ_API_KEY,
     AZURE: process.env.AZURE_SPEECH_KEY,
     AZURE_REGION: process.env.AZURE_REGION,
     AZURA: process.env.AZURA_KEY,
-    STATION_ID: process.env.STATION_ID || "24"
+    STATION_ID: process.env.STATION_ID || "24",
+    PASSWORD: process.env.APP_PASSWORD
 };
 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
@@ -39,18 +40,21 @@ const FRASES = {
     ]
 };
 
-function randomDe(arr) {
-    return arr[Math.floor(Math.random() * arr.length)];
-}
+const randomDe = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 // ======= LOGIN =======
 app.post('/login', (req, res) => {
     const { password } = req.body;
-    if (password === process.env.APP_PASSWORD) {
-        res.json({ success: true });
-    } else {
-        res.status(401).json({ success: false });
+
+    if (!KEYS.PASSWORD) {
+        return res.status(500).json({ error: "APP_PASSWORD no configurada" });
     }
+
+    if (password === KEYS.PASSWORD) {
+        return res.json({ success: true });
+    }
+
+    return res.status(401).json({ success: false, message: "Clave incorrecta" });
 });
 
 // ======= NOTICIAS =======
@@ -73,9 +77,7 @@ async function obtenerNoticia() {
 
 // ======= IA =======
 async function redactarIA(texto) {
-    if (!texto) {
-        return randomDe(FRASES.ids) + " 🔥";
-    }
+    if (!texto) return randomDe(FRASES.ids);
 
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
@@ -98,15 +100,15 @@ async function generarVoz(texto, archivo) {
         const synth = new sdk.SpeechSynthesizer(config);
 
         const ssml = `
-        <speak xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
-            <voice name="es-CO-SalomeNeural">
-                <mstts:express-as style="cheerful" xmlns:mstts="https://www.w3.org/2001/mstts">
-                    <prosody rate="+10%" pitch="+2%">
-                        ${texto}
-                    </prosody>
-                </mstts:express-as>
-            </voice>
-        </speak>`;
+<speak xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
+  <voice name="es-CO-SalomeNeural">
+    <mstts:express-as style="cheerful" xmlns:mstts="https://www.w3.org/2001/mstts">
+      <prosody rate="+10%" pitch="+2%">
+        ${texto}
+      </prosody>
+    </mstts:express-as>
+  </voice>
+</speak>`;
 
         synth.speakSsmlAsync(ssml,
             result => {
@@ -147,8 +149,8 @@ async function producirYSubir(archivo, nombreFinal, conFondo) {
                     }
                 });
 
-                fs.unlinkSync(archivo);
-                fs.unlinkSync(salida);
+                if (fs.existsSync(archivo)) fs.unlinkSync(archivo);
+                if (fs.existsSync(salida)) fs.unlinkSync(salida);
 
                 resolve();
             } catch (e) {
@@ -164,7 +166,7 @@ async function autoRadio() {
 
     try {
         const clima = await axios.get(
-            "https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true"
+            "https://api.open-meteo.com/v1/forecast?latitude=4.71&longitude=-74.07&current_weather=true"
         );
 
         const noticia = await obtenerNoticia();
@@ -176,17 +178,17 @@ async function autoRadio() {
         });
 
         const texto = `
-        ${randomDe(FRASES.ids)}...
+${randomDe(FRASES.ids)}...
 
-        Son las ${hora} en Colombia...
-        Temperatura actual ${Math.round(clima.data.current_weather.temperature)} grados...
+Son las ${hora} en Bogotá...
+Temperatura actual ${Math.round(clima.data.current_weather.temperature)} grados...
 
-        Atención:
-        ${noticia}...
+Atención:
+${noticia}...
 
-        ${randomDe(FRASES.transiciones)}...
-        ${randomDe(FRASES.ids)} 🔥
-        `;
+${randomDe(FRASES.transiciones)}...
+${randomDe(FRASES.ids)} 🔥
+`;
 
         const voz = `voz_${Date.now()}.mp3`;
 
@@ -199,22 +201,23 @@ async function autoRadio() {
     }
 }
 
-// ======= RUTAS =======
-app.get("/health", (req, res) => res.send("OK"));
-
+// ======= ENDPOINT MANUAL =======
 app.post("/locucion", async (req, res) => {
     try {
         const texto = await redactarIA(req.body.texto);
-        const voz = "manual.mp3";
+        const voz = `manual_${Date.now()}.mp3`;
 
         await generarVoz(texto, voz);
         await producirYSubir(voz, "manual.mp3", true);
 
-        res.send("OK");
+        res.json({ ok: true });
     } catch (e) {
-        res.status(500).send("Error");
+        res.status(500).json({ error: e.message });
     }
 });
+
+// ======= HEALTH =======
+app.get("/health", (req, res) => res.send("OK"));
 
 // ======= SERVIDOR =======
 const PORT = process.env.PORT || 8000;
@@ -222,6 +225,7 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
     console.log(`🔥 La Fronterísima PRO en puerto ${PORT}`);
 
+    // Auto radio cada 15 min
     setTimeout(() => {
         autoRadio();
         setInterval(autoRadio, 15 * 60 * 1000);
