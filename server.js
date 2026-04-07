@@ -41,6 +41,17 @@ const FRASES = {
 
 const randomDe = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+// ======= SISTEMA DE SEGURIDAD =======
+app.post('/login', (req, res) => {
+    const { password } = req.body;
+    const secretKey = KEYS.PASSWORD; 
+    if (password && password === secretKey) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ success: false, message: "Clave incorrecta" });
+    }
+});
+
 // ======= OBTENER NOTICIAS =======
 async function obtenerNoticia() {
     try {
@@ -115,17 +126,15 @@ async function generarVoz(texto, archivo) {
     });
 }
 
-// ======= FFMPEG Y SUBIDA (Corrección atrim/aresample) =======
+// ======= FFMPEG Y SUBIDA =======
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const salida = `prod_${Date.now()}.mp3`;
     const fondo = path.join(__dirname, "fondo.mp3");
 
     return new Promise((resolve, reject) => {
-        // Comando base (voz sola)
         let cmd = `ffmpeg -y -i ${archivoVoz} -af "volume=1.8" -c:a libmp3lame -b:a 128k ${salida}`;
         
         if (conFondo && fs.existsSync(fondo)) {
-            // CORREGIDO: atrim para audio y aresample para unificar frecuencias
             cmd = `ffmpeg -y -i ${fondo} -i ${archivoVoz} -filter_complex "[0:a]volume=0.08,atrim=duration=25,aresample=44100[bg];[1:a]volume=2.2,aresample=44100[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${salida}`;
         }
 
@@ -176,7 +185,7 @@ async function autoRadio() {
     } catch (e) { console.error("❌ Error en AutoRadio:", e.message || e); }
 }
 
-// ======= RUTAS =======
+// ======= RUTAS API =======
 app.get("/health", (req, res) => res.send("OK"));
 
 app.post("/locucion-manual", async (req, res) => {
@@ -193,6 +202,6 @@ app.post("/locucion-manual", async (req, res) => {
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
     console.log(`🔥 La Fronterísima PRO corriendo en puerto ${PORT}`);
-    setTimeout(autoRadio, 30000); // Primer inicio a los 30 segundos
-    setInterval(autoRadio, 15 * 60 * 1000); // Cada 15 min
+    setTimeout(autoRadio, 30000); 
+    setInterval(autoRadio, 15 * 60 * 1000); 
 });
