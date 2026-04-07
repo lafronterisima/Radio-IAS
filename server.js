@@ -1,3 +1,4 @@
+ 
 require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
@@ -10,111 +11,108 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
-// ======= CONFIGURACIÓN DE VARIABLES =======
+// ======= SISTEMA DE SEGURIDAD =======
+app.post('/login', (req, res) => {
+    const { password } = req.body;
+    const secretKey = process.env.APP_PASSWORD; 
+    if (password === secretKey) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ success: false, message: "Clave incorrecta" });
+    }
+});
+
+// ======= CONEXI脫N CON FRONTEND =======
+app.use(express.static(path.join(__dirname, "public")));
+
 const KEYS = {
     GEMINI: process.env.GOOGLE_API_KEY,
     GROQ: process.env.GROQ_API_KEY,
     AZURE: process.env.AZURE_SPEECH_KEY,
     AZURE_REGION: process.env.AZURE_REGION,
     AZURA: process.env.AZURA_KEY,
-    STATION_ID: process.env.STATION_ID || "24",
-    STATION_URL: process.env.STATION_URL || "https://az.azurafree.eu",
-    PASSWORD: process.env.APP_PASSWORD,
-    KOYEB_URL: "https://indirect-kelsi-lafronterisima-c6a755f2.koyeb.app"
+    STATION_ID: process.env.STATION_ID || "24"
 };
 
-const AZURA_API_UPLOAD = `${KEYS.STATION_URL}/api/station/${KEYS.STATION_ID}/files/upload`;
-const AZURA_API_NOWPLAYING = `${KEYS.STATION_URL}/api/nowplaying/${KEYS.STATION_ID}`;
+const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
-app.use(express.static(path.join(__dirname, "public")));
-
-// ======= RUTAS DE SALUD Y SEGURIDAD =======
-app.get("/health", (req, res) => res.status(200).send("LIVE"));
-
-app.post('/login', (req, res) => {
-    if (req.body.password === KEYS.PASSWORD) return res.json({ success: true });
-    res.status(401).json({ success: false, message: "Clave incorrecta" });
-});
-
-// ======= 1. OBTENER DATOS EXTERNOS (CLIMA, NOTICIAS, MÚSICA) =======
-async function obtenerClimaReal() {
-    try {
-        // Coordenadas de Bogotá para clima real en Colombia
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=4.6097&longitude=-74.0817&current_weather=true&timezone=America/Bogota`;
-        const res = await axios.get(url, { timeout: 6000 });
-        return Math.round(res.data.current_weather.temperature);
-    } catch (e) { 
-        console.warn("⚠️ Falló clima, usando 19°C por defecto.");
-        return 19; 
-    }
-}
-
+// ======= 2. OBTENER NOTICIAS =======
 async function obtenerNoticia() {
     try {
         const res = await axios.get("https://news.google.com/rss/search?q=source:Euronews+espanol&hl=es-419&gl=CO&ceid=CO:es-419", {
-            timeout: 8000,
-            headers: { 'User-Agent': 'Mozilla/5.0' }
+            timeout: 5000,
+            headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Bot)' }
         });
         const match = res.data.match(/<title>([^<]+)<\/title>/g);
         if (match && match.length > 2) {
-            return match[Math.floor(Math.random() * 3) + 1].replace(/<title>|<\/title>/g, '').split(' - ')[0].trim();
+            const index = Math.floor(Math.random() * (match.length - 2)) + 1;
+            let noticia = match[index]
+                .replace(/<title>|<\/title>/g, '') 
+                .replace(/<!\[CDATA\[|\]\]>/g, '')
+                .split(' - ')[0] 
+                .trim();
+            return noticia;
         }
-    } catch (e) { console.warn("⚠️ Error en Noticias RSS"); }
-    return "El panorama mundial se mantiene en constante movimiento.";
+        return "El panorama mundial sigue en movimiento con La Fronter铆sima.";
+    } catch (e) {
+        return "Noticias internacionales surcando las fronteras en este instante.";
+    }
 }
 
-async function obtenerCancionActual() {
-    try {
-        const res = await axios.get(AZURA_API_NOWPLAYING, { timeout: 4000 });
-        const np = res.data[0]?.now_playing?.song || res.data?.now_playing?.song;
-        return np ? `${np.title} de ${np.artist}` : "nuestra programación especial";
-    } catch (e) { return "la mejor selección musical"; }
-}
-
-// ======= 2. REDACCIÓN CON INTELIGENCIA ARTIFICIAL =======
+// ======= 3. INTELIGENCIA ARTIFICIAL (L脫GICA H脥BRIDA) =======
 async function redactarIA(idea, datos = null) {
-    const cancion = await obtenerCancionActual();
-    const hora = datos ? datos.hora : new Date().toLocaleTimeString("es-CO", {hour:'2-digit', minute:'2-digit', timeZone: 'America/Bogota'});
-    
-    let prompt = `Eres la locutora estrella de "La Fronterísima". Estilo: Español Neutro de Colombia. 
-    ${datos ? `CONTEXTO: Son las ${hora}, clima: ${datos.temp}°C, Noticia: ${datos.noticia}.` : `IDEA: ${idea}.`}
-    Música sonando: "${cancion}". Crea un guion cálido de 45 palabras. 
-    Termina siempre con la frase: "La Fronterisima, notas surcando fronteras".`;
+    let prompt;
 
-    // Intento con Gemini
+    if (datos) {
+        // MODO AUTOM脕TICO (REPORTES 15 MIN)
+        prompt = `Eres la locutora estrella de "La Fronter铆sima". Hora: ${datos.hora}, Temp: ${datos.temp}掳C, Noticia: ${datos.noticia}. 
+        Crea un guion alegre de 45 palabras mencionando estos datos para Cali. 
+        Termina con: "La Fronterisima, notas surcando fronteras". SOLO texto plano.`;
+    } 
+    else if (idea && idea.trim() !== "") {
+        // MODO MANUAL (CON TEXTO)
+        prompt = `Eres la locutora de "La Fronter铆sima". 
+        INSTRUCCI脫N DEL DIRECTOR: ${idea}. 
+        Redacta un guion profesional y carism谩tico basado estrictamente en esta idea. 
+        Termina con: "La Fronterisima, notas surcando fronteras". SOLO texto plano.`;
+    } 
+    else {
+        // MODO POSITIVO (BOT脫N REDACTAR VAC脥O)
+        prompt = `Eres la locutora de "La Fronter铆sima" en Cali. 
+        Genera un mensaje corto (25 palabras) de mucha energ铆a, buena vibra, un saludo a los oyentes 
+        o un dato curioso breve de la salsa. Termina con: "La Fronterisima, notas surcando fronteras". SOLO texto.`;
+    }
+
+    // FAILOVER: GEMINI -> GROQ
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 12000 });
+        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
         const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (texto) return limpiarTexto(texto);
-    } catch (e) { console.warn("⚠️ Gemini falló, saltando a Groq..."); }
+    } catch (e) { console.warn("鈿狅笍 Gemini fall贸, saltando a Groq..."); }
 
-    // Respaldo con Groq
     try {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
             model: "llama-3.1-8b-instant",
-            messages: [{ role: "system", content: "Locutora profesional colombiana." }, { role: "user", content: prompt }]
-        }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
+            messages: [{ role: "system", content: "Locutora colombiana alegre." }, { role: "user", content: prompt }]
+        }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
         return limpiarTexto(res.data?.choices?.[0]?.message?.content);
-    } catch (e) { 
-        return `Hola Colombia, sintonizan La Fronterísima. Son las ${hora} y disfrutamos de ${cancion}. Notas surcando fronteras.`; 
-    }
+    } catch (e) { return "Sintonizas La Fronter铆sima, notas surcando fronteras. 隆La mejor energ铆a para Cali hoy!"; }
 }
 
 function limpiarTexto(t) {
     return t.replace(/[*#_]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:/gi, '').trim();
 }
 
-// ======= 3. VOZ Y PRODUCCIÓN (FFMPEG) =======
+// ======= 4. VOZ Y PRODUCCI脫N =======
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
         const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
-        config.speechSynthesisVoiceName = "es-CO-SalomeNeural";
+        config.speechSynthesisVoiceName = "es-CO-SalomeNeural"; 
         const synth = new sdk.SpeechSynthesizer(config);
         const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="es-CO">
-            <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.1">
-            <prosody rate="+5%">${texto}</prosody></mstts:express-as></voice></speak>`;
-        
+            <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.4">
+            <prosody rate="+8%">${texto}</prosody></mstts:express-as></voice></speak>`;
         synth.speakSsmlAsync(ssml, r => {
             if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
                 fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
@@ -127,13 +125,12 @@ async function generarVoz(texto, archivoDestino) {
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
     const fondoExiste = fs.existsSync("fondo.mp3");
-    
-    // Comando FFmpeg con volumen optimizado para radio
-    const cmd = (conFondo && fondoExiste)
-        ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.12[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
-        : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
-
     return new Promise((resolve, reject) => {
+        // Mezcla con volumen optimizado para que la voz resalte
+        const cmd = (conFondo && fondoExiste)
+            ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.12[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
+            : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+        
         exec(cmd, async (err) => {
             if (err) return reject("FFmpeg Error");
             try {
@@ -141,56 +138,67 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
                 form.append('file', fs.createReadStream(tempSalida), { filename: nombreFinal });
                 form.append('path', nombreFinal);
                 await axios.post(AZURA_API_UPLOAD, form, {
-                    headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
-                    timeout: 30000 // Tiempo extra para subir el audio
+                    headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }
                 });
-                // Limpieza de archivos temporales
                 [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
                 resolve();
-            } catch (e) { reject("Error Subida Azura"); }
+            } catch (e) { reject("Error Azura"); }
         });
     });
 }
 
-// ======= 4. CICLOS DE REPORTE (AUTOMÁTICOS) =======
-async function autoReporte() {
-    console.log("🎙️ Generando reporte automático...");
+// ======= 5. RUTAS API =======
+app.get("/health", (req, res) => res.status(200).send("LIVE"));
+
+app.post("/redactar-guion", async (req, res) => {
+    // Si la idea est谩 vac铆a, redactarIA generar谩 el mensaje positivo
+    const guion = await redactarIA(req.body.idea || "");
+    res.json({ guion });
+});
+
+app.post("/procesar-locucion", async (req, res) => {
+    const { texto, conFondo } = req.body;
+    const nombreFijo = "Redactor_ia.mp3"; 
+    const pathVoz = `v_${Date.now()}.mp3`;
     try {
-        const temp = await obtenerClimaReal();
+        await generarVoz(texto, pathVoz);
+        await producirYSubir(pathVoz, nombreFijo, conFondo);
+        res.send("OK");
+    } catch (e) { res.status(500).send(e.toString()); }
+});
+
+// ======= 6. AUTOMATIZACI脫N (REPORTE DE NOTICIAS) =======
+async function autoReporte() {
+    console.log("馃帣锔� Generando reporte autom谩tico (Hora/Clima/Noticias)...");
+    try {
+        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
         const noticia = await obtenerNoticia();
-        const hora = new Date().toLocaleTimeString("es-CO", { 
-            hour: '2-digit', minute: '2-digit', timeZone: 'America/Bogota' 
-        });
-
-        const guion = await redactarIA(null, { hora, temp, noticia });
-        const pathVoz = `v_auto_${Date.now()}.mp3`;
-
-        await generarVoz(guion, pathVoz);
-        await producirYSubir(pathVoz, "dj_auto.mp3", true);
-        console.log(`✅ Reporte Exitoso: ${hora} | ${temp}°C`);
-    } catch (e) {
-        console.error("❌ Fallo en Ciclo de Reporte:", e.message);
-    }
+        const datos = { 
+            hora: new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' }),
+            temp: Math.round(clim.data.current_weather.temperature),
+            noticia
+        };
+        const guion = await redactarIA(null, datos);
+        const pathAuto = `v_auto.mp3`;
+        await generarVoz(guion, pathAuto);
+        await producirYSubir(pathAuto, "dj_auto.mp3", true);
+        console.log(`鉁� Auto-Reporte exitoso (${datos.hora})`);
+    } catch (e) { console.error("鉂� Error Auto-Reporte:", e.message); }
 }
 
-// ======= 5. INICIO DEL SERVIDOR Y SUPERVIVENCIA =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Pro activa en puerto ${PORT}`);
+    console.log(`馃殌 La Fronter铆sima Pro en puerto ${PORT}`);
     
-    // Iniciar reporte inicial y luego cada 15 min
+    // Iniciar auto-reporte tras 1 minuto y repetir cada 15 min
     setTimeout(() => {
         autoReporte();
-        setInterval(autoReporte, 15 * 60 * 1000);
-    }, 15000);
+        setInterval(autoReporte, 15 * 60 * 1000); 
+    }, 60000);
 
-    // Self-Ping para mantener viva la instancia en Koyeb
-    setInterval(async () => {
-        try {
-            await axios.get(`${KEYS.KOYEB_URL}/health`, { timeout: 5000 });
-            console.log("⚓ Pulso de vida enviado.");
-        } catch (e) {
-            console.warn("⚠️ Advertencia: Self-ping no pudo contactar al servidor.");
-        }
-    }, 4 * 60 * 1000); // Cada 4 minutos
+    // Autoping cada 10 minutos para mantener vivo el servidor
+    setInterval(() => {
+        const appName = process.env.KOYEB_APP_NAME || 'localhost';
+        axios.get(`https://${appName}.koyeb.app/health`).catch(() => {});
+    }, 10 * 60 * 1000);
 });
