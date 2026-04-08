@@ -6,9 +6,12 @@ const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
 const path = require("path");
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
 
 // ======= 1. CONFIGURACIÓN Y LLAVES =======
 const KEYS = {
@@ -19,210 +22,156 @@ const KEYS = {
     AZURA: process.env.AZURA_KEY,
     STATION_ID: process.env.STATION_ID || "24",
     PASSWORD: process.env.APP_PASSWORD,
-    URL_APP: process.env.URL_APP || `http://localhost:${process.env.PORT || 8000}`
+    URL_APP: process.env.URL_APP || `https://indirect-kelsi-lafronterisima-c6a755f2.koyeb.app`
 };
 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
-app.use(express.static(path.join(__dirname, "public")));
+// ======= 2. WHATSAPP BOT CONFIG =======
+let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 
-// ======= 2. VALIDACIÓN / LOGIN =======
-app.post('/login', (req, res) => {
-    const { password } = req.body;
-    if (password === KEYS.PASSWORD) {
-        res.json({ success: true });
-    } else {
-        res.status(401).json({ success: false, message: "Clave incorrecta" });
+const client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: { 
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-extensions'] 
     }
 });
 
-// ======= 3. FUNCIONES DE DATOS (MÚSICA Y NOTICIAS) =======
+client.on('qr', (qr) => {
+    console.log('📱 ESCANEA EL QR EN LOS LOGS PARA CONECTAR WHATSAPP:');
+    qrcode.generate(qr, { small: true });
+});
+
+client.on('ready', () => console.log('✅ WhatsApp de La Fronterísima ONLINE.'));
+
+client.on('message', async msg => {
+    if (msg.body && !msg.from.includes('@g.us')) {
+        const contacto = await msg.getContact();
+        ultimoSaludo = {
+            nombre: contacto.pushname || "un oyente",
+            texto: msg.body,
+            fecha: new Date()
+        };
+        console.log(`📥 Saludo guardado de ${ultimoSaludo.nombre}`);
+        msg.reply("¡Recibido! Tu saludo saldrá al aire pronto en La Fronterísima. 🎙️");
+    }
+});
+
+client.initialize();
+
+// ======= 3. FUNCIONES DE APOYO (IA, VOZ, NOTICIAS) =======
 
 async function obtenerAhoraSuena() {
     try {
         const res = await axios.get(`https://az.azurafree.eu/api/nowplaying/${KEYS.STATION_ID}`, { timeout: 4000 });
         const np = res.data.now_playing?.song;
         return np ? { artista: np.artist, titulo: np.title } : { artista: "varios artistas", titulo: "la mejor música" };
-    } catch (e) {
-        return { artista: "varios artistas", titulo: "tu música favorita" };
-    }
+    } catch (e) { return { artista: "varios artistas", titulo: "tu música favorita" }; }
 }
 
 async function obtenerNoticiasBBC() {
     try {
         const res = await axios.get("https://feeds.bbci.co.uk/mundo/rss.xml", { timeout: 5000 });
         const matches = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
-        if (matches && matches.length > 2) {
-            const n1 = matches[1].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').trim();
-            const n2 = matches[2].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').trim();
-            return `${n1}. Además: ${n2}`;
-        }
-        return "El mundo sigue vibrando con la mejor energía.";
+        return (matches && matches.length > 2) ? 
+            `${matches[1].replace(/<[^>]+>/g, '').trim()}. Además: ${matches[2].replace(/<[^>]+>/g, '').trim()}` : 
+            "El mundo sigue vibrando con la mejor energía.";
+    } catch (e) { return "Sigue en sintonía para más información."; }
+}
+
+async function redactarIA(prompt) {
+    try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
+        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
+        return limpiarTexto(res.data?.candidates?.[0]?.content?.parts?.[0]?.text);
     } catch (e) {
-        return "Sigue en sintonía para más información.";
+        try {
+            const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+                model: "llama-3.1-8b-instant",
+                messages: [{ role: "system", content: "Locutora colombiana alegre." }, { role: "user", content: prompt }]
+            }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
+            return limpiarTexto(res.data?.choices?.[0]?.message?.content);
+        } catch (err) { return "Sintonizas La Fronterísima, notas surcando fronteras."; }
     }
 }
 
-// ======= 4. INTELIGENCIA ARTIFICIAL (FAILOVER) =======
-async function redactarIA(promptPersonalizado) {
-    // Intento 1: Gemini
-    try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-        const res = await axios.post(url, { contents: [{ parts: [{ text: promptPersonalizado }] }] }, { timeout: 6000 });
-        const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (texto) return limpiarTexto(texto);
-    } catch (e) { console.warn("⚠️ Gemini falló, usando Groq..."); }
+function limpiarTexto(t) { return t.replace(/[*#_]/g, '').trim(); }
 
-    // Intento 2: Groq
-    try {
-        const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-            model: "llama-3.1-8b-instant",
-            messages: [{ role: "system", content: "Locutora colombiana alegre y profesional." }, { role: "user", content: promptPersonalizado }]
-        }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
-        return limpiarTexto(res.data?.choices?.[0]?.message?.content);
-    } catch (e) { return "Sintonizas La Fronterísima, notas surcando fronteras."; }
-}
-
-function limpiarTexto(t) {
-    return t.replace(/[*#_]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:/gi, '').trim();
-}
-
-// ======= 5. VOZ Y PRODUCCIÓN =======
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
         const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
-        config.speechSynthesisVoiceName = "es-CO-SalomeNeural"; 
+        config.speechSynthesisVoiceName = "es-CO-SalomeNeural";
         const synth = new sdk.SpeechSynthesizer(config);
-        const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="es-CO">
-            <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.4">
-            <prosody rate="+8%">${texto}</prosody></mstts:express-as></voice></speak>`;
-        
+        const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
+            <voice name="es-CO-SalomeNeural"><prosody rate="+8%">${texto}</prosody></voice></speak>`;
         synth.speakSsmlAsync(ssml, r => {
-            if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-                fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
-                synth.close(); resolve();
-            } else { synth.close(); reject("Error TTS"); }
+            fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
+            synth.close(); resolve();
         }, e => { synth.close(); reject(e); });
     });
 }
 
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
-    const fondoExiste = fs.existsSync("fondo.mp3");
+    const fondo = "fondo.mp3";
+    const cmd = (conFondo && fs.existsSync(fondo))
+        ? `ffmpeg -y -i ${fondo} -i ${archivoVoz} -filter_complex "[0:a]volume=0.15[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
+        : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+    
     return new Promise((resolve, reject) => {
-        const cmd = (conFondo && fondoExiste)
-            ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.15[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
-            : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
-        
         exec(cmd, async (err) => {
-            if (err) return reject("FFmpeg Error");
-            try {
-                const form = new FormData();
-                form.append('file', fs.createReadStream(tempSalida), { filename: nombreFinal });
-                form.append('path', nombreFinal);
-                await axios.post(AZURA_API_UPLOAD, form, {
-                    headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }
-                });
-                [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
-                resolve();
-            } catch (e) { reject("Error Azura"); }
+            if (err) return reject(err);
+            const form = new FormData();
+            form.append('file', fs.createReadStream(tempSalida), { filename: nombreFinal });
+            form.append('path', nombreFinal);
+            await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA } });
+            [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
+            resolve();
         });
     });
 }
 
-// ======= 6. RUTAS API =======
-app.get("/health", (req, res) => res.status(200).send("OK"));
+// ======= 4. RUTAS Y WEBHOOKS =======
 
-app.post("/redactar-guion", async (req, res) => {
-    const guion = await redactarIA(req.body.idea);
-    res.json({ guion });
+app.post('/login', (req, res) => {
+    res.status(req.body.password === KEYS.PASSWORD ? 200 : 401).json({ success: req.body.password === KEYS.PASSWORD });
 });
 
-app.post("/procesar-locucion", async (req, res) => {
-    const { texto, conFondo } = req.body;
-    const pathVoz = `v_${Date.now()}.mp3`;
-    try {
-        await generarVoz(texto, pathVoz);
-        await producirYSubir(pathVoz, "Redactor_ia.mp3", conFondo);
-        res.send("OK");
-    } catch (e) { res.status(500).send(e.toString()); }
+app.post("/azura-event", async (req, res) => {
+    console.log("📡 Cambio de canción detectado.");
+    autoReporte(); // Lanza la locución cada vez que Azura avisa
+    res.sendStatus(200);
 });
 
-// ======= 7. AUTOMATIZACIONES =======
-
-// A. Reporte de noticias y música (15 min -> dj_auto.mp3)
 async function autoReporte() {
     try {
-        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
+        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.60&longitude=-74.08&current_weather=true");
         const bbc = await obtenerNoticiasBBC();
         const np = await obtenerAhoraSuena();
-        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' });
-        const temp = Math.round(clim.data.current_weather.temperature);
+        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
+        
+        let mencionSaludo = "";
+        if (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 20 * 60 * 1000)) {
+            mencionSaludo = `MENSAJE WHATSAPP: ${ultimoSaludo.nombre} dice "${ultimoSaludo.texto}". Salúdalo.`;
+        }
 
-        // Busca esta parte en tu función autoReporte y cámbiala:
- const prompt = `Eres locutora estrella de La Fronterísima. 
-        IMPORTANTE: Debes empezar diciendo la hora exacta: ${hora}.
-        Contexto: Temperatura de ${temp}°C. 
-        Música que suena: "${np.titulo}" de ${np.artista}. 
-        Noticias BBC Mundo: ${bbc}.
-        Instrucción: Crea un guion dinámico de 50 palabras. Menciona la hora PRIMERO, luego la música, el clima nacional y las noticias. 
-        No menciones ciudades. Habla para toda nuestra audiencia.
-        Termina con el eslogan: "La Fronterísima, notas surcando fronteras". SOLO el texto del guion.`;
+        const prompt = `Eres la locutora de La Fronterísima. 
+        HORA ACTUAL: ${hora}. Temp: ${Math.round(clim.data.current_weather.temperature)}°C. 
+        Música: ${np.titulo} de ${np.artista}. Noticias: ${bbc}. ${mencionSaludo}
+        Instrucción: Guion rumbero de 60 palabras. DI LA HORA PRIMERO. Saluda al oyente si hay mensaje. 
+        Termina: "La Fronterísima, notas surcando fronteras". SOLO TEXTO.`;
 
         const guion = await redactarIA(prompt);
-        const pathAuto = `v_auto.mp3`;
-        await generarVoz(guion, pathAuto);
-        await producirYSubir(pathAuto, "dj_auto.mp3", true);
-        console.log("✅ Auto-Reporte (BBC + Música) subido.");
-    } catch (e) { console.error("❌ Error Auto-Reporte:", e.message); }
+        const pathV = `v_auto.mp3`;
+        await generarVoz(guion, pathV);
+        await producirYSubir(pathV, "dj_auto.mp3", true);
+        ultimoSaludo.fecha = null; // Evita repetir el saludo
+        console.log(`✅ Locución de las ${hora} subida.`);
+    } catch (e) { console.error("❌ Error AutoReporte:", e.message); }
 }
 
-// B. Contenido creativo (50 min -> Redactor_ia.mp3)
-async function autoContenidoCreativo() {
-    const temas = ["un dato curioso musical", "un pensamiento positivo", "una efeméride del día", "un saludo rumbero"];
-    const tema = temas[Math.floor(Math.random() * temas.length)];
-    const prompt = `Genera un mensaje de locución de 35 palabras sobre ${tema}. Tono alegre y dinámico para La Fronterísima. Incluye eslogan final.`;
-
-    try {
-        const guion = await redactarIA(prompt);
-        const pathC = `v_crea.mp3`;
-        await generarVoz(guion, pathC);
-        await producirYSubir(pathC, "Redactor_ia.mp3", true);
-        console.log(`✅ Contenido creativo automático subido: ${tema}`);
-    } catch (e) { console.error("❌ Error Creativo:", e.message); }
-}
-
-// ======= 8. MANTENER INSTANCIA DESPIERTA =======
-setInterval(async () => {
-    try {
-        await axios.get(`${KEYS.URL_APP}/health`);
-        console.log("⚓ Ping de supervivencia enviado.");
-    } catch (e) { console.warn("⚠️ Error en Auto-Ping"); }
-}, 5 * 60 * 1000);
-
-// ======= 9. INICIO DEL SERVIDOR =======
+// ======= 5. INICIO =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
-    
-    setTimeout(() => {
-        autoReporte();
-        setInterval(autoReporte, 15 * 60 * 1000);
-    }, 10000);
-
-    setTimeout(() => {
-        autoContenidoCreativo();
-        setInterval(autoContenidoCreativo, 50 * 60 * 1000);
-    }, 30000);
-});
-
-// Este bloque recibe la señal de AzuraCast
-app.post("/azura-event", async (req, res) => {
-    console.log("📡 Señal recibida desde AzuraCast");
-    
-    // Aquí puedes decidir qué hacer cuando cambia la canción.
-    // Por ejemplo, generar un reporte automático:
-    // autoReporte(); 
-
-    res.status(200).send("Recibido correctamente");
+    console.log(`🚀 La Fronterísima ONLINE en puerto ${PORT}`);
 });
