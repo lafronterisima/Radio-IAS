@@ -90,8 +90,21 @@ bot.on('message', async (msg) => {
 // ======= 3. FUNCIONES DE APOYO & JAMENDO =======
 
 async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
-    const parametro = esBusquedaEspecifica ? `search=${encodeURIComponent(query)}` : `fuzzytags=${query}&order=random`;
-    const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&${parametro}`;
+    // Tus géneros preferidos para búsquedas aleatorias (/descubrir)
+    const generosFronterisima = ['salsa', 'reggaeton', 'bachata', 'vallenato', 'popular', 'balada'];
+    
+    let parametro;
+    if (esBusquedaEspecifica) {
+        // Si el oyente pide algo, buscamos por texto
+        parametro = `search=${encodeURIComponent(query)}`;
+    } else {
+        // Si es aleatorio, elegimos uno de tus géneros al azar
+        const generoAzar = generosFronterisima[Math.floor(Math.random() * generosFronterisima.length)];
+        parametro = `fuzzytags=${generoAzar}&order=ratingdesc`; // 'ratingdesc' trae lo mejor valorado
+    }
+
+    // Filtramos por duración (mínimo 2 min) para evitar clips raros o ruidos
+    const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&durationbetween=120_600&${parametro}`;
     
     try {
         const res = await axios.get(url, { timeout: 8000 });
@@ -99,11 +112,14 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
             const t = res.data.results[0];
             return {
                 url: t.audio,
-                nombre: `${t.artist_name} - ${t.name}.mp3`.replace(/[/\\?%*:|"<>]/g, '-'),
+                nombre: `estreno_jamendo.mp3`, // Nombre fijo para que reemplace al anterior
                 info: `${t.name} de ${t.artist_name}`
             };
         }
-    } catch (e) { return null; }
+    } catch (e) { 
+        console.error("Error Jamendo Filtro:", e.message);
+        return null; 
+    }
 }
 
 async function descargarYSubirAzura(track) {
