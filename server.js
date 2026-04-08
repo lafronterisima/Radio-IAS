@@ -311,3 +311,9 @@ app.listen(PORT, "0.0.0.0", () => {
     setTimeout(autoReporte, 5000);
     setInterval(autoReporte, 15 * 60 * 1000);
 });
+
+
+     // Intervalo de Redactor IA (Efemérides/Positivismo) - Cada 50 min
+    setTimeout(autoRedactorIA, 20000); 
+    setInterval(autoRedactorIA, 50 * 60 * 1000);
+});   
