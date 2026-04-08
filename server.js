@@ -293,6 +293,22 @@ async function autoReporte() {
     } catch (e) { console.error("Error Auto:", e.message); }
 }
 
+async function autoRedactorIA() {
+    console.log("⏳ Generando contenido automático para Redactor_ia...");
+    try {
+        const temas = ["un mensaje positivo y motivador", "una efeméride musical de hoy", "un dato curioso sobre un artista latino", "un consejo de alegría para los caleños"];
+        const temaAzar = temas[Math.floor(Math.random() * temas.length)];
+        
+        const prompt = `Actúa como Salomé de La Fronterísima Cali. Redacta un guion de 40 palabras que incluya ${temaAzar}. Tono rumbero, alegre y muy caleño. Termina con el eslogan: Notas surcando fronteras.`;
+        
+        const guion = await redactarIA(prompt);
+        const pathVoz = `v_red_${Date.now()}.mp3`;
+        await generarVoz(guion, pathVoz);
+        await producirYSubir(pathVoz, "Redactor_ia.mp3", true);
+        console.log("✅ Redactor_ia.mp3 actualizado automáticamente.");
+    } catch (e) { console.error("Error en AutoRedactor:", e.message); }
+}
+
 app.post('/login', (req, res) => {
     // Compara la contraseña enviada con la que tienes en el .env
     if (req.body.password === KEYS.PASSWORD) {
