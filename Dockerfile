@@ -1,24 +1,47 @@
- 
-# Usamos una imagen de Node compacta pero completa
+# 1. Usamos la imagen oficial de Node
 FROM node:18-slim
 
-# INSTALACIÓN CLAVE: Instalamos ffmpeg directamente en el sistema operativo
+# 2. INSTALACIÓN DE DEPENDENCIAS DEL SISTEMA
+# Instalamos ffmpeg para el audio y las librerías necesarias para Chromium (WhatsApp)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    wget \
+    gnupg \
+    ca-certificates \
+    procps \
+    libgconf-2-4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libgdk-pixbuf2.0-0 \
+    libgtk-3-0 \
+    libgbm-dev \
+    libnss3 \
+    libxss1 \
+    libasound2 \
+    fonts-liberation \
+    libappindicator3-1 \
+    xdg-utils \
+    --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Directorio de trabajo
+# 3. Directorio de trabajo
 WORKDIR /app
 
-# Copiamos solo los archivos de dependencias primero (optimiza el tiempo de carga)
+# 4. Instalación de dependencias de Node
 COPY package*.json ./
-RUN npm install --production
+# Instalamos todas incluyendo puppeteer
+RUN npm install
 
-# Copiamos el resto del código y tu archivo de fondo musical
+# 5. Copiamos el código
 COPY . .
 
-# Exponemos el puerto para Koyeb
-EXPOSE 3000
+# 6. CONFIGURACIÓN DE PUPPETEER
+# Esto le dice a la librería de WhatsApp dónde encontrar el navegador
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
-# Comando para arrancar el DJ
+# 7. Exponemos el puerto
+EXPOSE 8000
+
+# 8. Comando de arranque
 CMD ["node", "server.js"]
