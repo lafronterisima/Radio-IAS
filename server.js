@@ -20,47 +20,54 @@ const KEYS = {
     AZURE_REGION: process.env.AZURE_REGION,
     AZURA: process.env.AZURA_KEY,
     STATION_ID: process.env.STATION_ID || "24",
+    PASSWORD: process.env.APP_PASSWORD,
     TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
-    JAMENDO_ID: process.env.JAMENDO_CLIENT_ID || "56d30cce" // Client ID de Jamendo
+    JAMENDO_ID: process.env.JAMENDO_CLIENT_ID || "c230e1f4"
 };
 
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_UPLOAD = `${AZURA_BASE}/files/upload`;
 
-// ======= 2. TELEGRAM CON COMANDOS INTELIGENTES =======
+// ======= 2. TELEGRAM (MANEJO DE CONFLICTOS POLLING) =======
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
+
+// Evitar que el error 409 detenga el servidor
+bot.on('polling_error', (err) => {
+    if (!err.message.includes('409 Conflict')) console.error("Telegram Error:", err.message);
+});
+
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 let cancionRecienDescubierta = null;
 
 bot.on('message', async (msg) => {
     if (!msg.text) return;
 
-    // Comando para descubrir música nueva manualmente
     if (msg.text === '/descubrir') {
-        bot.sendMessage(msg.chat.id, "🔎 Buscando una joya musical para La Fronterísima...");
+        bot.sendMessage(msg.chat.id, "🔎 Buscando música nueva para La Fronterísima...");
         const track = await buscarMusicaJamendo('latin');
         if (track) {
             await descargarYSubirAzura(track);
             cancionRecienDescubierta = track.info;
-            bot.sendMessage(msg.chat.id, `✅ ¡Logrado! Subí "${track.info}" a la radio. Salomé la presentará pronto.`);
+            bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Salomé la presentará pronto.`);
         } else {
-            bot.sendMessage(msg.chat.id, "❌ No pude encontrar música nueva en este momento.");
+            bot.sendMessage(msg.chat.id, "❌ No encontré música nueva ahora.");
         }
         return;
     }
 
-    // Registro de saludos normales
     if (!msg.text.startsWith('/')) {
-        ultimoSaludo = {
-            nombre: msg.from.first_name || "un oyente",
-            texto: msg.text,
-            fecha: new Date()
-        };
-        bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo saldrá al aire pronto en La Fronterísima. 🎙️");
+        ultimoSaludo = { nombre: msg.from.first_name || "un oyente", texto: msg.text, fecha: new Date() };
+        bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo saldrá al aire pronto. 🎙️");
     }
 });
 
-// ======= 3. EXPLORACIÓN MUSICAL (JAMENDO) =======
+// ======= 3. FUNCIONES DE APOYO =======
+
+function limpiarTexto(t) {
+    if (!t) return "";
+    return t.replace(/```[a-z]*\n?/gi, '').replace(/[*#_~]/g, '')
+            .replace(/Locutor:|Guion:|Respuesta:|Locutora:|Salomé:/gi, '').trim();
+}
 
 async function buscarMusicaJamendo(genero = 'latin') {
     const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&order=random&fuzzytags=${genero}&audioformat=mp32`;
@@ -74,43 +81,45 @@ async function buscarMusicaJamendo(genero = 'latin') {
                 info: `${t.name} de ${t.artist_name}`
             };
         }
-    } catch (e) { console.error("Error Jamendo:", e.message); }
-    return null;
+    } catch (e) { return null; }
 }
 
 async function descargarYSubirAzura(track) {
-    const tempFile = path.join(__dirname, 'temp_download.mp3');
+    const tempFile = path.join(__dirname, 'temp_track.mp3');
     try {
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         response.data.pipe(writer);
-
         return new Promise((resolve) => {
             writer.on('finish', async () => {
                 const form = new FormData();
                 form.append('file', fs.createReadStream(tempFile), { filename: track.nombre });
                 form.append('path', `Musica_Nueva/${track.nombre}`);
-                await axios.post(AZURA_UPLOAD, form, { 
-                    headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
-                    timeout: 90000 
-                });
+                await axios.post(AZURA_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, timeout: 90000 });
                 if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                 resolve(true);
             });
         });
-    } catch (e) { console.error("Error descarga/subida:", e.message); }
+    } catch (e) { console.error("Error Jamendo Upload:", e.message); }
 }
 
-// ======= 4. LÓGICA DE CLIMA Y MÚSICA =======
+// ======= 4. INTELIGENCIA ARTIFICIAL (NÚCLEO) =======
 
-async function obtenerMoodMusical(temp) {
-    let playlist = (temp >= 29) ? "rumba_caliente" : (temp <= 22) ? "vallenato_lluvia" : "chill_ibero";
-    let mensaje = (temp >= 29) ? "el calor está encendido y soltamos la rumba" : (temp <= 22) ? "está fresco para un vallenato del alma" : "tenemos el clima perfecto para notas que surcan fronteras";
-
+async function redactarIA(prompt) {
     try {
-        await axios.get(`${AZURA_BASE}/playlist/${playlist}/toggle`, { headers: { "X-API-Key": KEYS.AZURA } });
-    } catch (e) { /* Silencioso si falla el toggle */ }
-    return mensaje;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
+        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 10000 });
+        const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (texto) return limpiarTexto(texto);
+    } catch (e) {
+        try {
+            const res = await axios.post("[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)", {
+                model: "llama-3.1-8b-instant",
+                messages: [{ role: "system", content: "Locutora rumbera colombiana." }, { role: "user", content: prompt }]
+            }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
+            return limpiarTexto(res.data?.choices?.[0]?.message?.content);
+        } catch (err) { return "Sintonizas La Fronterísima, desde Colombia para el mundo."; }
+    }
 }
 
 // ======= 5. PRODUCCIÓN DE AUDIO =======
@@ -120,10 +129,9 @@ async function generarVoz(texto, archivo) {
         const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
         config.speechSynthesisVoiceName = "es-CO-SalomeNeural";
         const synth = new sdk.SpeechSynthesizer(config);
-        const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="es-CO">
+        const ssml = `<speak version="1.0" xmlns="[http://www.w3.org/2001/10/synthesis](http://www.w3.org/2001/10/synthesis)" xmlns:mstts="[https://www.w3.org/2001/mstts](https://www.w3.org/2001/mstts)" xml:lang="es-CO">
             <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.4">
             <prosody rate="+8%">${texto}</prosody></mstts:express-as></voice></speak>`;
-        
         synth.speakSsmlAsync(ssml, r => {
             if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
                 fs.writeFileSync(archivo, Buffer.from(r.audioData));
@@ -154,63 +162,69 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     });
 }
 
-// ======= 6. AUTOMATIZACIÓN NACIONAL =======
+// ======= 6. RUTAS API (FRONTEND) =======
 
-async function autoReporte() {
-    try {
-        const climRes = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.30&current_weather=true");
-        const temp = Math.round(climRes.data.current_weather.temperature);
-        const mood = await obtenerMoodMusical(temp);
-        
-        const resNp = await axios.get(`https://az.azurafree.eu/api/nowplaying/${KEYS.STATION_ID}`);
-        const np = resNp.data.now_playing?.song || { artist: "Grandes artistas", title: "Éxitos" };
-        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
-
-        let extras = "";
-        if (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 45 * 60 * 1000)) {
-            extras += ` SALUDO: ${ultimoSaludo.nombre} dice "${ultimoSaludo.texto}".`;
-        }
-        if (cancionRecienDescubierta) {
-            extras += ` NOVEDAD: Acabamos de añadir a la librería: ${cancionRecienDescubierta}.`;
-            cancionRecienDescubierta = null;
-        }
-
-        const prompt = `Actúa como Salomé, locutora de La Fronterísima. 
-        Contexto: Colombia, ${hora}, ${temp}°C. Música: ${np.title} de ${np.artist}. 
-        Mood: ${mood}.${extras}
-        Escribe un guion de 55 palabras alegre y nacional (para toda Colombia). 
-        Usa "en cada rincón de nuestra tierra". Termina con "Notas surcando fronteras".`;
-
-        // Lógica de Redacción (Gemini con respaldo Groq)
-        let guion;
-        try {
-            const resG = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`, { contents: [{ parts: [{ text: prompt }] }] });
-            guion = resG.data.candidates[0].content.parts[0].text;
-        } catch {
-            const resGr = await axios.post("https://api.groq.com/openai/v1/chat/completions", { model: "llama-3.1-8b-instant", messages: [{role:"user", content:prompt}] }, { headers: { Authorization: `Bearer ${KEYS.GROQ}` } });
-            guion = resGr.data.choices[0].message.content;
-        }
-
-        const guionLimpio = guion.replace(/[*#_]/g, '').trim();
-        await generarVoz(guionLimpio, "v_auto.mp3");
-        await producirYSubir("v_auto.mp3", "dj_auto.mp3", true);
-        ultimoSaludo.fecha = null;
-        console.log(`✅ Reporte Colombia [${hora}] ejecutado.`);
-    } catch (e) { console.error("Error en Auto:", e.message); }
-}
-
-// ======= 7. RUTAS Y ARRANQUE =======
-
-app.get("/health", (req, res) => res.sendStatus(200));
-app.post("/azura-event", (req, res) => { autoReporte(); res.sendStatus(200); });
 app.post('/login', (req, res) => {
-    if (req.body.password === process.env.APP_PASSWORD) res.json({ success: true });
+    if (req.body.password === KEYS.PASSWORD) res.json({ success: true });
     else res.status(401).json({ success: false });
 });
 
+app.post("/redactar-guion", async (req, res) => {
+    try {
+        const { idea } = req.body;
+        const prompt = `Locutora Salomé de La Fronterísima. Guion alegre sobre: ${idea}. Máximo 40 palabras. Usa el eslogan: Notas surcando fronteras.`;
+        const guion = await redactarIA(prompt);
+        res.json({ guion: guion || "¡Sintoniza la mejor energía con La Fronterísima!" });
+    } catch (e) {
+        res.json({ guion: "Notas surcando fronteras. ¡Súbele al volumen!" });
+    }
+});
+
+app.post("/procesar-locucion", async (req, res) => {
+    const { texto, conFondo } = req.body;
+    const pathVoz = `v_man_${Date.now()}.mp3`;
+    try {
+        await generarVoz(texto, pathVoz);
+        await producirYSubir(pathVoz, "Redactor_ia.mp3", conFondo);
+        res.send("OK");
+    } catch (e) { res.status(500).send("Error"); }
+});
+
+// ======= 7. AUTOMATIZACIÓN =======
+
+async function autoReporte() {
+    try {
+        const climRes = await axios.get("[https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.30&current_weather=true](https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.30&current_weather=true)");
+        const temp = Math.round(climRes.data.current_weather.temperature);
+        const playlist = (temp >= 29) ? "rumba_caliente" : (temp <= 22) ? "vallenato_lluvia" : "chill_ibero";
+        
+        try { await axios.get(`${AZURA_BASE}/playlist/${playlist}/toggle`, { headers: { "X-API-Key": KEYS.AZURA } }); } catch(e){}
+
+        const resNp = await axios.get(`https://az.azurafree.eu/api/nowplaying/${KEYS.STATION_ID}`);
+        const np = resNp.data.now_playing?.song || { artist: "Artistas", title: "Éxitos" };
+        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
+
+        let extras = "";
+        if (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 45 * 60 * 1000)) extras += ` SALUDO: ${ultimoSaludo.nombre} dice "${ultimoSaludo.texto}".`;
+        if (cancionRecienDescubierta) { extras += ` ESTRENO: Acabamos de subir ${cancionRecienDescubierta}.`; cancionRecienDescubierta = null; }
+
+        const prompt = `Actúa como Salomé, locutora de La Fronterísima. Colombia, ${hora}, ${temp}°C. Música: ${np.title}. ${extras} Guion de 55 palabras, nacional, alegre. Termina: Notas surcando fronteras.`;
+
+        const guion = await redactarIA(prompt);
+        await generarVoz(guion, "v_auto.mp3");
+        await producirYSubir("v_auto.mp3", "dj_auto.mp3", true);
+        ultimoSaludo.fecha = null;
+        console.log(`✅ Reporte Colombia [${hora}] OK.`);
+    } catch (e) { console.error("Error Auto:", e.message); }
+}
+
+// ======= 8. ARRANQUE =======
+
+app.get("/health", (req, res) => res.sendStatus(200));
+
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
+    console.log(`🚀 Servidor en puerto ${PORT}`);
     setTimeout(autoReporte, 5000);
     setInterval(autoReporte, 15 * 60 * 1000);
 });
