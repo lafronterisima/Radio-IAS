@@ -135,24 +135,48 @@ async function generarVoz(texto, archivoDestino) {
     });
 }
 
+
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
     const fondoExiste = fs.existsSync("fondo.mp3");
+    const introExiste = fs.existsSync("intro.mp3");
+
+    let cmd;
+
+    if (conFondo && fondoExiste && introExiste) {
+        // CASO PRO: Intro + Voz + Música de fondo
+        // Concatenamos Intro y Voz primero, luego mezclamos con el fondo
+        cmd = `ffmpeg -y -i intro.mp3 -i ${archivoVoz} -i fondo.mp3 -filter_complex \
+        "[0:a][1:a]concat=n=2:v=0:a=1[full_voz]; \
+         [2:a]volume=0.10[bg]; \
+         [full_voz]volume=1.8[v]; \
+         [bg][v]amix=inputs=2:duration=shortest" \
+        -c:a libmp3lame -b:a 128k ${tempSalida}`;
+    } else if (conFondo && fondoExiste) {
+        // Caso estándar: Solo Voz + Fondo
+        cmd = `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.10[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+    } else {
+        // Solo Voz limpia
+        cmd = `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+    }
+
     return new Promise((resolve, reject) => {
-        const cmd = (conFondo && fondoExiste)
-            ? `ffmpeg -y -i fondo.mp3 -i ${archivoVoz} -filter_complex "[0:a]volume=0.15[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
-            : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
         exec(cmd, async (err) => {
-            if (err) return reject("FFmpeg Error");
+            if (err) {
+                console.error("Error FFmpeg:", err);
+                return reject("FFmpeg Error");
+            }
             try {
                 const form = new FormData();
                 form.append('file', fs.createReadStream(tempSalida), { filename: nombreFinal });
                 form.append('path', nombreFinal);
-                await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA } });
-                if(fs.existsSync(archivoVoz)) fs.unlinkSync(archivoVoz);
-                if(fs.existsSync(tempSalida)) fs.unlinkSync(tempSalida);
+                await axios.post(AZURA_API_UPLOAD, form, {
+                    headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
+                    timeout: 45000 
+                });
+                [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
                 resolve();
-            } catch (e) { reject("Error Azura"); }
+            } catch (e) { reject("Error Subida Azura"); }
         });
     });
 }
