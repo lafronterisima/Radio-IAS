@@ -68,24 +68,52 @@ async function obtenerNoticiasBBC() {
 
 // ======= 4. INTELIGENCIA ARTIFICIAL =======
 
-async function redactarIA(prompt) {
+// ======= 3. REDACCIÓN CON IA (MODO STORYTELLING PROFESIONAL) =======
+async function redactarIA(idea, datos = null) {
+    const cancionActual = await obtenerCancionActual(); // Ej: "Hips Don't Lie de Shakira"
+    const hora = datos ? datos.hora : new Date().toLocaleTimeString("es-CO", {hour:'2-digit', minute:'2-digit', timeZone: 'America/Bogota'});
+    
+    // Extraemos solo el artista para que la IA busque el dato
+    const artista = cancionActual.includes(" de ") ? cancionActual.split(" de ")[1] : "este artista";
+
+    let prompt = "";
+
+    if (datos) {
+        // REPORTE AUTOMÁTICO 15 MIN (Estilo La Ochentera)
+        prompt = `Eres la locutora estrella de "La Fronterísima". Estilo: Profesional, cálido, español neutro de Colombia.
+        TU MISIÓN:
+        1. Saludo breve: "Son las ${hora}".
+        2. Clima: "Colombia registra ${datos.temp}°C".
+        3. CURIOSIDAD: Cuéntame un dato curioso muy breve (15 palabras) sobre ${artista}.
+        4. NOTICIA: Menciona brevemente: ${datos.noticia}.
+        5. CIERRE: "La Fronterisima, notas surcando fronteras".
+        TOTAL: Máximo 55 palabras. No uses frases robóticas.`;
+    } else {
+        // SALUDO HORARIO O MANUAL
+        prompt = `Locutora de "La Fronterísima". Crea una intervención carismática. 
+        Menciona que estamos escuchando a ${cancionActual}. 
+        Cuéntanos algo interesante de ${artista} y lanza un mensaje positivo para Colombia.
+        Termina: "La Fronterisima, notas surcando fronteras". Máximo 45 palabras.`;
+    }
+
+    // Lógica de generación (Gemini con fallback a Groq)
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
-        return limpiarTexto(res.data?.candidates?.[0]?.content?.parts?.[0]?.text);
+        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 15000 });
+        const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (texto) return limpiarTexto(texto);
     } catch (e) {
+        console.warn("⚠️ Gemini falló, usando respaldo Groq para el dato musical...");
         try {
             const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
                 model: "llama-3.1-8b-instant",
-                messages: [{ role: "system", content: "Locutora colombiana rumbera." }, { role: "user", content: prompt }]
-            }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
+                messages: [{ role: "user", content: prompt }]
+            }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 10000 });
             return limpiarTexto(res.data?.choices?.[0]?.message?.content);
-        } catch (err) { return "Sintonizas La Fronterísima, notas surcando fronteras."; }
+        } catch (err) {
+            return `A esta hora en La Fronterísima disfrutamos de ${cancionActual}. Notas surcando fronteras.`;
+        }
     }
-}
-
-function limpiarTexto(t) {
-    return t.replace(/[*#_]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:/gi, '').trim();
 }
 
 // ======= 5. VOZ Y PRODUCCIÓN =======
