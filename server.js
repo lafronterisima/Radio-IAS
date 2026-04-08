@@ -24,7 +24,6 @@ const KEYS = {
 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
-// Archivos estáticos del frontend
 app.use(express.static(path.join(__dirname, "public")));
 
 // ======= 2. VALIDACIÓN / LOGIN =======
@@ -37,48 +36,48 @@ app.post('/login', (req, res) => {
     }
 });
 
-// ======= 3. OBTENCIÓN DE NOTICIAS (RSS) =======
-async function obtenerNoticia() {
+// ======= 3. FUNCIONES DE DATOS (MÚSICA Y NOTICIAS) =======
+
+async function obtenerAhoraSuena() {
     try {
-        const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo", {
-            headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Radio-Bot)' },
-            timeout: 5000
-        });
-        const match = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
-        if (match && match.length > 1) {
-            const index = Math.floor(Math.random() * (match.length - 1)) + 1;
-            return match[index].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').split(' | ')[0].trim();
+        const res = await axios.get(`https://az.azurafree.eu/api/nowplaying/${KEYS.STATION_ID}`, { timeout: 4000 });
+        const np = res.data.now_playing?.song;
+        return np ? { artista: np.artist, titulo: np.title } : { artista: "varios artistas", titulo: "la mejor música" };
+    } catch (e) {
+        return { artista: "varios artistas", titulo: "tu música favorita" };
+    }
+}
+
+async function obtenerNoticiasBBC() {
+    try {
+        const res = await axios.get("https://feeds.bbci.co.uk/mundo/rss.xml", { timeout: 5000 });
+        const matches = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
+        if (matches && matches.length > 2) {
+            const n1 = matches[1].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').trim();
+            const n2 = matches[2].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').trim();
+            return `${n1}. Además: ${n2}`;
         }
-        return "Sigue vibrando con la mejor energía rumbera.";
-    } catch (e) { 
-        return "Notas surcando fronteras con la mejor música."; 
+        return "El mundo sigue vibrando con la mejor energía.";
+    } catch (e) {
+        return "Sigue en sintonía para más información.";
     }
 }
 
 // ======= 4. INTELIGENCIA ARTIFICIAL (FAILOVER) =======
-async function redactarIA(idea, datos = null) {
-    let prompt;
-    if (datos) {
-        prompt = `Eres locutor estrella de "La Fronterísima". Hora en Colombia: ${datos.hora}, Temp: ${datos.temp}°C, Noticia: ${datos.noticia}. 
-        Instrucción: Crea un guion alegre de 45 palabras. Incluye hora, clima y noticia. 
-        Termina con: "La Fronterisima, notas surcando fronteras". SOLO texto.`;
-    } else {
-        prompt = idea;
-    }
-
+async function redactarIA(promptPersonalizado) {
     // Intento 1: Gemini
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
+        const res = await axios.post(url, { contents: [{ parts: [{ text: promptPersonalizado }] }] }, { timeout: 6000 });
         const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (texto) return limpiarTexto(texto);
-    } catch (e) { console.warn("⚠️ Falló Gemini, intentando Groq..."); }
+    } catch (e) { console.warn("⚠️ Gemini falló, usando Groq..."); }
 
     // Intento 2: Groq
     try {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
             model: "llama-3.1-8b-instant",
-            messages: [{ role: "system", content: "Locutora colombiana alegre." }, { role: "user", content: prompt }]
+            messages: [{ role: "system", content: "Locutora colombiana alegre y profesional." }, { role: "user", content: promptPersonalizado }]
         }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
         return limpiarTexto(res.data?.choices?.[0]?.message?.content);
     } catch (e) { return "Sintonizas La Fronterísima, notas surcando fronteras."; }
@@ -88,7 +87,7 @@ function limpiarTexto(t) {
     return t.replace(/[*#_]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:/gi, '').trim();
 }
 
-// ======= 5. VOZ Y PRODUCCIÓN (FFMPEG) =======
+// ======= 5. VOZ Y PRODUCCIÓN =======
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
         const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
@@ -131,7 +130,7 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     });
 }
 
-// ======= 6. RUTAS PARA EL PANEL =======
+// ======= 6. RUTAS API =======
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
 app.post("/redactar-guion", async (req, res) => {
@@ -141,80 +140,75 @@ app.post("/redactar-guion", async (req, res) => {
 
 app.post("/procesar-locucion", async (req, res) => {
     const { texto, conFondo } = req.body;
-    const nombreFijo = "Redactor_ia.mp3";
     const pathVoz = `v_${Date.now()}.mp3`;
     try {
         await generarVoz(texto, pathVoz);
-        await producirYSubir(pathVoz, nombreFijo, conFondo);
+        await producirYSubir(pathVoz, "Redactor_ia.mp3", conFondo);
         res.send("OK");
     } catch (e) { res.status(500).send(e.toString()); }
 });
 
 // ======= 7. AUTOMATIZACIONES =======
 
-// A. Reporte de noticias (cada 15 min -> dj_auto.mp3)
+// A. Reporte de noticias y música (15 min -> dj_auto.mp3)
 async function autoReporte() {
     try {
         const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
-        const noticia = await obtenerNoticia();
-        const datos = { 
-            hora: new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' }),
-            temp: Math.round(clim.data.current_weather.temperature),
-            noticia
-        };
-        const guion = await redactarIA(null, datos);
+        const bbc = await obtenerNoticiasBBC();
+        const np = await obtenerAhoraSuena();
+        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' });
+        const temp = Math.round(clim.data.current_weather.temperature);
+
+        const prompt = `Eres locutor estrella de La Fronterísima. 
+        Contexto: Son las ${hora} en Colombia, ${temp}°C en Cali. 
+        Música actual: "${np.titulo}" de ${np.artista}. 
+        Noticias BBC: ${bbc}.
+        Instrucción: Crea un guion alegre de 50 palabras mencionando la canción que suena, el clima y las noticias. 
+        Termina con: "La Fronterísima, notas surcando fronteras". SOLO texto.`;
+
+        const guion = await redactarIA(prompt);
         const pathAuto = `v_auto.mp3`;
         await generarVoz(guion, pathAuto);
         await producirYSubir(pathAuto, "dj_auto.mp3", true);
-        console.log(`✅ Auto-Reporte Noticias Exitoso`);
+        console.log("✅ Auto-Reporte (BBC + Música) subido.");
     } catch (e) { console.error("❌ Error Auto-Reporte:", e.message); }
 }
 
-// B. Contenido creativo (cada 50 min -> Redactor_ia.mp3)
+// B. Contenido creativo (50 min -> Redactor_ia.mp3)
 async function autoContenidoCreativo() {
-    console.log("✨ Generando contenido creativo automático...");
-    const temas = [
-        "un pensamiento positivo corto y motivador",
-        "un dato curioso de la música",
-        "una efeméride histórica del día de hoy",
-        "un saludo alegre a los oyentes de La Fronterísima"
-    ];
+    const temas = ["un dato curioso musical", "un pensamiento positivo", "una efeméride del día", "un saludo rumbero"];
     const tema = temas[Math.floor(Math.random() * temas.length)];
-    const prompt = `Eres locutora de radio rumbera. Genera un guion de 35 palabras sobre: ${tema}. Termina con el eslogan: "La Fronterísima, notas surcando fronteras". SOLO texto.`;
+    const prompt = `Genera un mensaje de locución de 35 palabras sobre ${tema}. Tono alegre y dinámico para La Fronterísima. Incluye eslogan final.`;
 
     try {
         const guion = await redactarIA(prompt);
-        const pathTemp = `v_creativo.mp3`;
-        await generarVoz(guion, pathTemp);
-        await producirYSubir(pathTemp, "Redactor_ia.mp3", true);
-        console.log(`✅ Contenido creativo subido: ${tema}`);
+        const pathC = `v_crea.mp3`;
+        await generarVoz(guion, pathC);
+        await producirYSubir(pathC, "Redactor_ia.mp3", true);
+        console.log(`✅ Contenido creativo automático subido: ${tema}`);
     } catch (e) { console.error("❌ Error Creativo:", e.message); }
 }
 
-// ======= 8. MANTENER INSTANCIA ACTIVA (SELF-PING) =======
+// ======= 8. MANTENER INSTANCIA DESPIERTA =======
 setInterval(async () => {
     try {
         await axios.get(`${KEYS.URL_APP}/health`);
-        console.log("⚓ Ping enviado para mantener instancia despierta.");
-    } catch (e) {
-        console.warn("⚠️ Error en Auto-Ping (Probable inicio de app)");
-    }
-}, 5 * 60 * 1000); // Cada 5 minutos
+        console.log("⚓ Ping de supervivencia enviado.");
+    } catch (e) { console.warn("⚠️ Error en Auto-Ping"); }
+}, 5 * 60 * 1000);
 
 // ======= 9. INICIO DEL SERVIDOR =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Pro conectada en puerto ${PORT}`);
+    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
     
-    // Ciclo 15 min (Noticias)
     setTimeout(() => {
         autoReporte();
-        setInterval(autoReporte, 15 * 60 * 1000); 
-    }, 10000); 
+        setInterval(autoReporte, 15 * 60 * 1000);
+    }, 10000);
 
-    // Ciclo 50 min (Creativo)
     setTimeout(() => {
         autoContenidoCreativo();
-        setInterval(autoContenidoCreativo, 50 * 60 * 1000); 
-    }, 30000); 
+        setInterval(autoContenidoCreativo, 50 * 60 * 1000);
+    }, 30000);
 });
