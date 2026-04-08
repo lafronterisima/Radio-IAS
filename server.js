@@ -192,3 +192,15 @@ app.listen(PORT, "0.0.0.0", () => {
     // Ejecución cada 50 minutos (Contenido Creativo)
     setInterval(autoContenidoCreativo, 50 * 60 * 1000);
 });
+
+const client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: { 
+        executablePath: '/usr/bin/google-chrome-stable', // Fuerza la ruta del Docker
+        args: [
+            '--no-sandbox', 
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage' // Ayuda a que no se quede sin memoria en la nube
+        ] 
+    }
+});
