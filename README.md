@@ -1,7 +1,6 @@
 
 # 🎙️ DJ Web Service
 
-- 🌤️ Clima en tiempo real (OpenWeather)
 - 🎵 Canción actual
 - 🎚️ Mezcla de audio automática
 
