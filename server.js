@@ -293,6 +293,15 @@ async function autoReporte() {
     } catch (e) { console.error("Error Auto:", e.message); }
 }
 
+app.post('/login', (req, res) => {
+    // Compara la contraseña enviada con la que tienes en el .env
+    if (req.body.password === KEYS.PASSWORD) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ success: false, message: "Contraseña incorrecta" });
+    }
+});
+
 // ======= 8. INICIO =======
 app.get("/health", (req, res) => res.sendStatus(200));
 
