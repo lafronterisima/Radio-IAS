@@ -160,13 +160,14 @@ async function autoReporte() {
         const temp = Math.round(clim.data.current_weather.temperature);
 
         // Busca esta parte en tu función autoReporte y cámbiala:
-const prompt = `Eres locutor estrella de La Fronterísima. 
-Contexto: Son las ${hora} en Colombia, temperatura promedio de ${temp}°C. 
-Música actual: "${np.titulo}" de ${np.artista}. 
-Noticias BBC: ${bbc}.
-Instrucción: Crea un guion alegre de 50 palabras. No menciones ninguna ciudad, habla de "nuestra audiencia" o "todo el país". 
-Incluye la música, el clima general y las noticias. 
-Termina con: "La Fronterísima, notas surcando fronteras". SOLO texto.`;
+ const prompt = `Eres locutora estrella de La Fronterísima. 
+        IMPORTANTE: Debes empezar diciendo la hora exacta: ${hora}.
+        Contexto: Temperatura de ${temp}°C. 
+        Música que suena: "${np.titulo}" de ${np.artista}. 
+        Noticias BBC Mundo: ${bbc}.
+        Instrucción: Crea un guion dinámico de 50 palabras. Menciona la hora PRIMERO, luego la música, el clima nacional y las noticias. 
+        No menciones ciudades. Habla para toda nuestra audiencia.
+        Termina con el eslogan: "La Fronterísima, notas surcando fronteras". SOLO el texto del guion.`;
 
         const guion = await redactarIA(prompt);
         const pathAuto = `v_auto.mp3`;
