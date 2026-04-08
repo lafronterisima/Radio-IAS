@@ -24,7 +24,7 @@ const KEYS = {
     STATION_ID: safeTrim(process.env.STATION_ID) || "24",
     PASSWORD: safeTrim(process.env.APP_PASSWORD),
     TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN),
-    JAMENDO_ID: safeTrim(process.env.JAMENDO_CLIENT_ID) || "c230e1f4"
+    JAMENDO_ID: safeTrim(process.env.JAMENDO_CLIENT_ID),
 };
 
 // URLs base limpias
