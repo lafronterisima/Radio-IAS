@@ -124,31 +124,44 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    const NOMBRE_FIJO = "estreno_jamendo.mp3"; // <--- Nombre que siempre se reemplazará
+    const NOMBRE_FIJO = "estreno_jamendo.mp3"; 
 
     try {
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
-        response.data.pipe(writer);
+        
+        return new Promise((resolve, reject) => {
+            response.data.pipe(writer);
 
-        return new Promise((resolve) => {
             writer.on('finish', async () => {
-                const form = new FormData();
-                // Usamos NOMBRE_FIJO para que AzuraCast sobrescriba el anterior
-                form.append('file', fs.createReadStream(tempFile), { filename: NOMBRE_FIJO });
-                form.append('path', `Musica_Nueva/${NOMBRE_FIJO}`); 
+                try {
+                    const form = new FormData();
+                    // Importante: No abrimos el stream de lectura hasta que el de escritura cerró
+                    form.append('file', fs.createReadStream(tempFile), { filename: NOMBRE_FIJO });
+                    form.append('path', `Musica_Nueva/${NOMBRE_FIJO}`); 
 
-                await axios.post(AZURA_API_UPLOAD, form, { 
-                    headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, 
-                    timeout: 90000 
-                });
+                    await axios.post(AZURA_API_UPLOAD, form, { 
+                        headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, 
+                        timeout: 90000 
+                    });
 
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(true);
+                } catch (err) {
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    console.error("Error subiendo a Azura:", err.message);
+                    reject(err);
+                }
+            });
+
+            writer.on('error', (err) => {
                 if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                resolve(true);
+                reject(err);
             });
         });
     } catch (e) { 
         console.error("Error al reemplazar en Jamendo:", e.message); 
+        return false;
     }
 }
 
