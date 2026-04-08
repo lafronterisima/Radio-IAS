@@ -25,11 +25,20 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
+            width: 100%;
         }
 
         .hidden { display: none !important; }
 
-        /* Estilos del Panel (Copiados de tu diseño con estilo) */
+        /* Contenedor central para asegurar el alineado vertical/horizontal */
+        .main-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            padding: 20px;
+        }
+
         .card {
             background: var(--card-bg);
             border-radius: 24px;
@@ -47,7 +56,7 @@
         }
 
         .header-panel { text-align: center; margin-bottom: 25px; }
-        .header-panel h1 { margin: 0; font-size: 1.8em; color: var(--blue-brand); text-transform: uppercase; font-weight: 900; italic; }
+        .header-panel h1 { margin: 0; font-size: 1.8em; color: var(--blue-brand); text-transform: uppercase; font-weight: 900; font-style: italic; }
         
         .section-label {
             display: block;
@@ -103,62 +112,63 @@
 </head>
 <body>
 
-    <div id="login-screen" class="w-full max-w-sm bg-slate-900 rounded-[2rem] p-10 border border-slate-800 shadow-2xl text-center">
-        <div class="mb-8">
-            <h2 class="text-2xl font-black italic uppercase text-[#4A86E8] leading-none">Acceso Azura</h2>
-            <p class="text-slate-500 text-[10px] uppercase tracking-[0.3em] mt-2">La Fronterísima</p>
-        </div>
-        <div class="space-y-4">
-            <input type="password" id="access-key" 
-                class="w-full bg-black border border-slate-800 rounded-2xl py-4 px-6 focus:outline-none focus:border-[#4A86E8] text-center tracking-[0.5em] text-white" 
-                placeholder="••••••">
-            <button onclick="checkAccess()" 
-                class="w-full bg-[#4A86E8] text-black font-black py-4 rounded-2xl hover:bg-blue-500 transition-all active:scale-95">
-                ENTRAR
-            </button>
-            <p id="error-msg" class="text-red-500 text-xs font-bold hidden">Clave incorrecta. Intenta de nuevo.</p>
-        </div>
-    </div>
-
-    <div id="panel-contenido" class="container hidden">
-        <div class="card">
-            <div class="header-panel">
-                <h1>La Fronterísima</h1>
-                <p style="color: var(--text-dim); font-size: 0.8em; text-transform: uppercase; letter-spacing: 2px;">Notas surcando fronteras</p>
+    <div class="main-wrapper">
+        <div id="login-screen" class="w-full max-w-sm bg-slate-900 rounded-[2rem] p-10 border border-slate-800 shadow-2xl text-center">
+            <div class="mb-8">
+                <h2 class="text-2xl font-black italic uppercase text-[#4A86E8] leading-none">Acceso Azura</h2>
+                <p class="text-slate-500 text-[10px] uppercase tracking-[0.3em] mt-2">La Fronterísima</p>
             </div>
-
-            <span class="section-label">1. ¿Qué quieres decir hoy?</span>
-            <div class="flex gap-2 mb-4">
-                <input type="text" id="ideaInput" placeholder="Texto a redactar...">
-                <button class="btn-ai" id="btnRedactar" onclick="redactarIA()">✨ Redactar</button>
+            <div class="space-y-4">
+                <input type="password" id="access-key" 
+                    class="w-full bg-black border border-slate-800 rounded-2xl py-4 px-6 focus:outline-none focus:border-[#4A86E8] text-center tracking-[0.5em] text-white" 
+                    placeholder="••••••">
+                <button onclick="checkAccess()" 
+                    class="w-full bg-[#4A86E8] text-black font-black py-4 rounded-2xl hover:bg-blue-500 transition-all active:scale-95">
+                    ENTRAR
+                </button>
+                <p id="error-msg" class="text-red-500 text-xs font-bold hidden">Clave incorrecta. Intenta de nuevo.</p>
             </div>
+        </div>
 
-            <span class="section-label">2. Guion de Locución (Gonzalo Neural)</span>
-            <textarea id="guionText" rows="4" placeholder="Aquí aparecerá el guion generado..."></textarea>
+        <div id="panel-contenido" class="hidden w-full flex justify-center">
+            <div class="card">
+                <div class="header-panel">
+                    <h1>La Fronterísima</h1>
+                    <p style="color: var(--text-dim); font-size: 0.8em; text-transform: uppercase; letter-spacing: 2px;">Notas surcando fronteras</p>
+                </div>
 
-            <span class="section-label">3. Configuración</span>
-            <input type="text" id="filename" placeholder="Nombre del archivo (ej: saludo_mañana)" class="mb-3">
-            
-            <label class="flex items-center gap-3 cursor-pointer p-2 hover:bg-white/5 rounded-lg transition">
-                <input type="checkbox" id="conFondo" checked class="w-4 h-4 accent-[#4A86E8]">
-                <span class="text-sm text-slate-400">Incluir cortina musical (Sidechain)</span>
-            </label>
+                <span class="section-label">1. ¿Qué quieres decir hoy?</span>
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="ideaInput" placeholder="Texto a redactar...">
+                    <button class="btn-ai" id="btnRedactar" onclick="redactarIA()">✨ Redactar</button>
+                </div>
 
-            <button class="btn-main" id="btnProduccion" onclick="procesarProduccion()">
-                🚀 SUBIR
-            </button>
+                <span class="section-label">2. Guion de Locución (Gonzalo Neural)</span>
+                <textarea id="guionText" rows="4" placeholder="Aquí aparecerá el guion generado..."></textarea>
 
-            <div id="status-box"></div>
+                <span class="section-label">3. Configuración</span>
+                <input type="text" id="filename" placeholder="Nombre del archivo (ej: saludo_mañana)" class="mb-3">
+                
+                <label class="flex items-center gap-3 cursor-pointer p-2 hover:bg-white/5 rounded-lg transition">
+                    <input type="checkbox" id="conFondo" checked class="w-4 h-4 accent-[#4A86E8]">
+                    <span class="text-sm text-slate-400">Incluir cortina musical (Sidechain)</span>
+                </label>
 
-            <div class="mt-8 pt-4 border-t border-white/5 flex justify-between items-center opacity-40 text-[10px] font-bold uppercase tracking-widest">
-                <span>🎙️ Voz: Gonzalo Neutro CO</span>
-                <span id="reloj-digital">00:00:00</span>
+                <button class="btn-main" id="btnProduccion" onclick="procesarProduccion()">
+                    🚀 SUBIR
+                </button>
+
+                <div id="status-box"></div>
+
+                <div class="mt-8 pt-4 border-t border-white/5 flex justify-between items-center opacity-40 text-[10px] font-bold uppercase tracking-widest">
+                    <span>🎙️ Voz: Gonzalo Neutro CO</span>
+                    <span id="reloj-digital">00:00:00</span>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        // --- LÓGICA DE ACCESO ---
         async function checkAccess() {
             const password = document.getElementById('access-key').value;
             const errorMsg = document.getElementById('error-msg');
@@ -188,7 +198,6 @@
             if (e.key === 'Enter') checkAccess();
         });
 
-        // --- FUNCIONES DEL PANEL ---
         function updateReloj() {
             const ahora = new Date();
             document.getElementById('reloj-digital').innerText = ahora.toLocaleTimeString();
@@ -206,11 +215,9 @@
         async function redactarIA() {
             const idea = document.getElementById('ideaInput').value;
             if(!idea) return alert("Escribe una idea primero.");
-
             const btn = document.getElementById('btnRedactar');
             btn.disabled = true;
-            showStatus("🤖 Redactando con Gemini...", "loading");
-
+            showStatus("🤖 Redactando...", "loading");
             try {
                 const res = await fetch('/redactar-guion', {
                     method: 'POST',
@@ -219,9 +226,9 @@
                 });
                 const data = await res.json();
                 document.getElementById('guionText').value = data.guion;
-                showStatus("✅ Guion generado correctamente", "success");
+                showStatus("✅ Guion generado", "success");
             } catch (e) {
-                showStatus("❌ Error en la redacción", "error");
+                showStatus("❌ Error", "error");
             } finally {
                 btn.disabled = false;
             }
@@ -232,28 +239,21 @@
             let nombre = document.getElementById('filename').value.trim();
             const conFondo = document.getElementById('conFondo').checked;
             const btn = document.getElementById('btnProduccion');
-
-            if(!texto || !nombre) return alert("Faltan datos (guion o nombre).");
-            
+            if(!texto || !nombre) return alert("Faltan datos.");
             nombre = nombre.replace(/[^a-z0-9_]/gi, '_').toLowerCase();
             if(!nombre.endsWith('.mp3')) nombre += '.mp3';
-
             btn.disabled = true;
-            showStatus("🎙️ Procesando audio y subiendo...", "loading");
-
+            showStatus("🎙️ Subiendo...", "loading");
             try {
                 const res = await fetch('/procesar-locucion', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ texto, nombreArchivo: nombre, conFondo })
                 });
-
                 if(res.ok) {
-                    showStatus("🚀 ¡ÉXITO! Ya está en AzuraCast", "success");
-                    document.getElementById('ideaInput').value = "";
-                    document.getElementById('filename').value = "";
+                    showStatus("🚀 ¡ÉXITO!", "success");
                 } else {
-                    throw new Error("Fallo en servidor");
+                    throw new Error("Fallo");
                 }
             } catch (e) {
                 showStatus("❌ Error: " + e.message, "error");
