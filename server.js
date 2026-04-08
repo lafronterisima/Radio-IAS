@@ -108,24 +108,32 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    const NOMBRE_FIJO = "estreno_jamendo.mp3"; // <--- Nombre que siempre se reemplazará
+
     try {
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         response.data.pipe(writer);
+
         return new Promise((resolve) => {
             writer.on('finish', async () => {
                 const form = new FormData();
-                form.append('file', fs.createReadStream(tempFile), { filename: track.nombre });
-                form.append('path', `Musica_Nueva/${track.nombre}`);
+                // Usamos NOMBRE_FIJO para que AzuraCast sobrescriba el anterior
+                form.append('file', fs.createReadStream(tempFile), { filename: NOMBRE_FIJO });
+                form.append('path', `Musica_Nueva/${NOMBRE_FIJO}`); 
+
                 await axios.post(AZURA_API_UPLOAD, form, { 
                     headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, 
                     timeout: 90000 
                 });
+
                 if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                 resolve(true);
             });
         });
-    } catch (e) { console.error("Error Jamendo:", e.message); }
+    } catch (e) { 
+        console.error("Error al reemplazar en Jamendo:", e.message); 
+    }
 }
 
 async function obtenerAhoraSuena() {
