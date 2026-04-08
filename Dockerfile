@@ -1,8 +1,7 @@
-# 1. Usamos la imagen de Node oficial (Debian)
+# Usamos la imagen completa de Node para evitar que falten librerías de sistema
 FROM node:18
 
-# 2. INSTALACIÓN DE DEPENDENCIAS
-# Instalamos ffmpeg y las dependencias necesarias para que corra el motor de WhatsApp (Chromium)
+# Instalamos ffmpeg y las dependencias de Chromium para WhatsApp
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     ca-certificates \
@@ -10,57 +9,32 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
-    libc6 \
-    libcairo2 \
-    libcups2 \
-    libdbus-1-3 \
-    libexpat1 \
-    libfontconfig1 \
     libgbm1 \
-    libgcc1 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnspr4 \
     libnss3 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libstdc++6 \
-    libx11-6 \
-    libx11-xcb1 \
-    libxcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxi6 \
-    libxrandr2 \
-    libxrender1 \
     libxss1 \
-    libxtst6 \
     lsb-release \
     wget \
     xdg-utils \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Directorio de trabajo
 WORKDIR /app
 
-# 4. Copiamos dependencias e instalamos
+# Copiamos archivos de configuración
 COPY package*.json ./
+
+# Instalamos dependencias (incluyendo puppeteer)
 RUN npm install
 
-# 5. Copiamos el resto del código
+# Copiamos el resto del código
 COPY . .
 
-# 6. Variables de entorno para Puppeteer
-# Esto evita que Puppeteer intente descargar otro Chrome y use el del sistema
+# Variables de entorno críticas para que Puppeteer no falle en Docker
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
-# 7. Puerto (Asegúrate de que coincida con tu server.js)
+# EXPOSE debe coincidir con el puerto que configuraste en server.js
 EXPOSE 8000
 
-# 8. Comando de inicio
+# Asegúrate de que tu archivo principal se llame server.js
 CMD ["node", "server.js"]
