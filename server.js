@@ -215,3 +215,14 @@ app.listen(PORT, "0.0.0.0", () => {
         setInterval(autoContenidoCreativo, 50 * 60 * 1000);
     }, 30000);
 });
+
+// Este bloque recibe la señal de AzuraCast
+app.post("/azura-event", async (req, res) => {
+    console.log("📡 Señal recibida desde AzuraCast");
+    
+    // Aquí puedes decidir qué hacer cuando cambia la canción.
+    // Por ejemplo, generar un reporte automático:
+    // autoReporte(); 
+
+    res.status(200).send("Recibido correctamente");
+});
