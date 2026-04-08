@@ -173,7 +173,42 @@ async function autoContenidoCreativo() {
     } catch (e) { console.error("❌ Error Creativo:", e.message); }
 }
 
-// ======= 7. RUTAS Y SERVIDOR =======
+
+// ======= 7. RUTAS DEL FRONTEND (AQUÍ VA EL NUEVO BLOQUE) =======
+
+app.post('/login', (req, res) => {
+    const { password } = req.body;
+    if (password === KEYS.PASSWORD) {
+        res.json({ success: true });
+    } else {
+        res.status(401).json({ success: false, message: "Clave incorrecta" });
+    }
+});
+
+app.post("/redactar-guion", async (req, res) => {
+    try {
+        const { idea } = req.body;
+        const prompt = `Eres la locutora de La Fronterísima. Redacta un guion breve (40 palabras) sobre: ${idea}. Tono rumbero y alegre.`;
+        const guion = await redactarIA(prompt);
+        res.json({ guion });
+    } catch (e) {
+        res.status(500).json({ error: "Error al redactar" });
+    }
+});
+
+app.post("/procesar-locucion", async (req, res) => {
+    const { texto, conFondo } = req.body;
+    const pathVoz = `v_manual_${Date.now()}.mp3`;
+    try {
+        await generarVoz(texto, pathVoz);
+        await producirYSubir(pathVoz, "Redactor_ia.mp3", conFondo);
+        res.send("OK");
+    } catch (e) {
+        res.status(500).send("Error en la producción manual");
+    }
+});
+
+// ======= 8. RUTAS Y SERVIDOR =======
 
 app.get("/health", (req, res) => res.status(200).send("OK"));
 
