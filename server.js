@@ -135,6 +135,7 @@ async function generarVoz(texto, archivoDestino) {
     });
 }
 
+// ======= 5. SUBIR Y PRODUCIR =======
 
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
