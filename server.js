@@ -102,15 +102,17 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     } catch (e) { return null; }
 }
 
-
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    // Esta es la carpeta destino según tu URL
-    const carpetaDestino = "Musica_Nueva"; 
     const nombreArchivo = `pedido_${Date.now()}.mp3`;
+    
+    // Codificamos el path para la URL
+    const carpetaDestino = encodeURIComponent("Musica_Nueva");
+    // Nueva URL con el parámetro path incluido
+    const urlConPath = `${AZURA_API_UPLOAD}?path=${carpetaDestino}`;
 
     try {
-        console.log(`📥 Descargando canción: ${track.info}`);
+        console.log(`📥 Descargando: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         
@@ -119,37 +121,31 @@ async function descargarYSubirAzura(track) {
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
-                    
-                    // 1. El archivo físico con su nombre
+                    // Importante: El nombre del archivo debe ir en el stream
                     form.append('file', fs.createReadStream(tempFile), { filename: nombreArchivo });
-                    
-                    // 2. El 'path' le dice a AzuraCast en qué carpeta soltarlo
-                    // Importante: No debe llevar "/" al inicio
-                    form.append('path', carpetaDestino);
 
-                    await axios.post(AZURA_API_UPLOAD, form, { 
+                    console.log(`📤 Subiendo a la carpeta: Musica_Nueva...`);
+                    
+                    await axios.post(urlConPath, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
                         } 
                     });
 
-                    console.log(`✅ Éxito: Guardado en /station/24/files/${carpetaDestino}`);
+                    console.log(`✅ ¡Logrado! Archivo en Musica_Nueva/${nombreArchivo}`);
 
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
                 } catch (err) { 
-                    console.error("❌ Error al subir a la carpeta específica:", err.response?.data || err.message);
+                    console.error("❌ Error de Azura:", err.response?.data || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
             });
         });
-    } catch (e) { 
-        console.error("❌ Error en la descarga:", e.message);
-        return false; 
-    }
-}                  
+    } catch (e) { return false; }
+}
               
 
 async function obtenerAhoraSuena() {
