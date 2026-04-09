@@ -101,36 +101,42 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
         }
     } catch (e) { return null; }
 }
-
-
-
-// URL CORREGIDA: Se añade /api/ antes de /station/
-const AZURA_API_UPLOAD = 'https://az.azurafree.eu/api/station/24/files/upload';
-const AZURA_KEY = '3fe83928421317df:fded3074080312a158077455cc24419c';
-
-async function descargarYSubirAzura(track) {
-    const idUnico = Date.now();
-    // Guardamos temporalmente como mp3 para mantener consistencia
-    const tempFile = path.join(__dirname, `tmp_${idUnico}.mp3`);
-    
-    const carpeta = "diss";
-    const nombreFinal = `pedido_${idUnico}.mp3`;
-    const pathCompleto = `${carpeta}/${nombreFinal}`;
-
-    try {
-        console.log(`⏳ Descargando track...`);
-        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
-        const writer = fs.createWriteStream(tempFile);
-
-        await new Promise((resolve, reject) => {
-            response.data.pipe(writer);
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-
-        console.log(`🚀 Subiendo a AzuraCast (Carpeta: ${carpeta})...`);
         
 
+async function descargarYSubirAzura(track) {
+    const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    const nombreEnServidor = `Musica_Nueva/${Date.now()}_pedido.mp3`; // Usar nombre único para evitar conflictos
+
+    try {
+        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
+        const writer = fs.createWriteStream(tempFile);
+        
+        return new Promise((resolve) => {
+            response.data.pipe(writer);
+            writer.on('finish', async () => {
+                try {
+                   const form = new FormData();
+
+// 1. IMPORTANTE: La ruta completa en el campo 'path'
+// No pongas "/" al principio. Debe ser "carpeta/archivo.mp3"
+const nombreFinal = `pedido_${Date.now()}.mp3`;
+const destinoForzado = `diss/${nombreFinal}`; 
+
+form.append('path', destinoForzado); 
+
+// 2. El archivo binario
+form.append('file', fs.createReadStream(tempFile), {
+    filename: nombreFinal,
+    contentType: 'audio/mpeg'
+});
+
+// 3. Petición POST (Asegúrate de que la URL tenga el /api/)
+const res = await axios.post(AZURA_API_UPLOAD, form, { 
+    headers: { 
+        ...form.getHeaders(),
+        'X-API-Key': AZURA_KEY
+    }
+});
 
 async function obtenerAhoraSuena() {
     try {
