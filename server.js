@@ -102,9 +102,11 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     } catch (e) { return null; }
 }
 
-async function descargarYSubirAzura(track) {
+
+     async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     const nombreArchivo = `${Date.now()}_pedido.mp3`;
+    // IMPORTANTE: Asegúrate de que en AzuraCast la carpeta se llame exactamente así
     const carpetaDestino = "Musica_Nueva"; 
 
     try {
@@ -117,19 +119,26 @@ async function descargarYSubirAzura(track) {
                 try {
                     const form = new FormData();
                     
-                    // ORDEN CRÍTICO: El path debe ir PRIMERO que el archivo en el FormData
+                    // 1. Enviamos el path como campo (algunas versiones lo requieren)
                     form.append('path', carpetaDestino); 
-                    form.append('file', fs.createReadStream(tempFile), { filename: nombreArchivo });
 
-                    // Usamos la URL limpia de la API
+                    // 2. TRUCO CRÍTICO: Inyectamos la carpeta en el nombre del archivo
+                    // Esto fuerza a AzuraCast a colocarlo dentro de la carpeta si el campo path falla.
+                    const rutaFinalEnAzura = `${carpetaDestino}/${nombreArchivo}`;
+                    
+                    form.append('file', fs.createReadStream(tempFile), { 
+                        filename: rutaFinalEnAzura // Aquí es donde ocurre la magia
+                    });
+
                     await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
-                        } 
+                        },
+                        timeout: 60000 // Aumentamos el tiempo por si el archivo es pesado
                     });
 
-                    console.log(`✅ Confirmado: ${nombreArchivo} subido a ${carpetaDestino}`);
+                    console.log(`✅ Éxito: ${nombreArchivo} guardado en la carpeta ${carpetaDestino}`);
 
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
@@ -140,9 +149,11 @@ async function descargarYSubirAzura(track) {
                 }
             });
         });
-    } catch (e) { return false; }
-}
-              
+    } catch (e) { 
+        console.error("❌ Error en descarga:", e.message);
+        return false; 
+    }
+}         
 
 async function obtenerAhoraSuena() {
     try {
