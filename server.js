@@ -125,67 +125,64 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     const nombreArchivo = "pedido_actual.mp3";
-    const carpetaDestino = "Pedidos_IA";
+    const carpeta = "Musica_Nueva";
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
-
-        // 1. DESCARGA EL ARCHIVO AL TEMPORAL
-        const response = await axios({
-            url: track.url,
-            method: 'GET',
-            responseType: 'stream'
+        const response = await axios({ 
+            url: track.url, 
+            method: 'GET', 
+            responseType: 'stream' 
         });
 
-        // pipeline asegura que el stream termine correctamente antes de seguir
-        await pipeline(response.data, fs.createWriteStream(tempFile));
-        console.log(`✅ Descarga completada localmente.`);
+        const writer = fs.createWriteStream(tempFile);
+        response.data.pipe(writer);
 
-        // 2. PREPARAR FORMULARIO DE SUBIDA
-        const form = new FormData();
-        form.append('file', fs.createReadStream(tempFile), {
-            filename: nombreArchivo
+        return new Promise((resolve) => {
+            writer.on('finish', async () => {
+                try {
+                    const form = new FormData();
+                    
+                    /**
+                     * CRÍTICO PARA v0.23.4:
+                     * 1. El campo 'path' debe ser la ruta relativa de la CARPETA.
+                     * 2. El campo 'file' debe incluir el nombre del archivo final.
+                     */
+                    form.append('path', carpeta); 
+                    form.append('file', fs.createReadStream(tempFile), { 
+                        filename: nombreArchivo,
+                        contentType: 'audio/mpeg'
+                    });
+
+                    console.log(`📤 Subiendo a /${carpeta}/${nombreArchivo}...`);
+
+                    await axios.post(AZURA_API_UPLOAD, form, { 
+                        headers: { 
+                            ...form.getHeaders(), 
+                            "X-API-Key": KEYS.AZURA 
+                        },
+                        // Evita el timeout en PHP 8.5
+                        timeout: 120000 
+                    });
+
+                    console.log(`✅ ¡Éxito! Archivo reemplazado correctamente.`);
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(true);
+
+                } catch (err) {
+                    // En esta versión, AzuraCast devuelve el error detallado en err.response.data
+                    console.error("❌ Error de AzuraCast:", err.response?.data?.message || err.message);
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(false);
+                }
+            });
         });
-
-        console.log(`📤 Subiendo a AzuraCast...`);
-
-        // Subida inicial
-        await axios.post(AZURA_API_UPLOAD, form, {
-            headers: {
-                ...form.getHeaders(),
-                "X-API-Key": KEYS.AZURA
-            }
-        });
-
-        // 3. MOVER ARCHIVO A LA CARPETA DESTINO
-        console.log(`📂 Moviendo a carpeta ${carpetaDestino}...`);
-        await axios.put(
-            `${AZURA_API}/station/${STATION_ID}/file`,
-            {
-                path: nombreArchivo,
-                new_path: `${carpetaDestino}/${nombreArchivo}`
-            },
-            {
-                headers: { "X-API-Key": KEYS.AZURA }
-            }
-        );
-
-        console.log(`✅ Proceso finalizado con éxito`);
-        
-        // Limpieza del temporal
-        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        return true;
-
-    } catch (err) {
-        // Captura errores tanto de Axios como del sistema de archivos
-        console.error("❌ Error en el proceso:", err.response?.data || err.message);
-        
-        if (fs.existsSync(tempFile)) {
-            try { fs.unlinkSync(tempFile); } catch (e) {}
-        }
+    } catch (e) {
+        console.error("❌ Error de descarga:", e.message);
         return false;
     }
 }
+
 
 
 async function solicitarCancionEnAzura(mediaId) {
