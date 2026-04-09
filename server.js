@@ -103,57 +103,88 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 }
 
 
-   async function descargarYSubirAzura(track) {
-    const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    const nombreArchivo = `${Date.now()}_pedido.mp3`;
-    // IMPORTANTE: Sin barras diagonales al inicio ni al final
-    const carpetaDestino = "Musica_Nueva"; 
+
+/**
+ * Descarga un track desde una URL y lo sube automáticamente a AzuraCast.
+ * @param {Object} track - Objeto con la información del track (debe tener .url)
+ */
+async function descargarYSubirAzura(track) {
+    // Generamos un nombre único para el archivo temporal y el destino
+    const idUnico = Date.now();
+    const tempFile = path.join(__dirname, `tmp_${idUnico}.mp3`);
+    const nombreArchivo = `${idUnico}_pedido.mp3`;
+    const carpetaDestino = "Musica_Nueva"; // Sin barras / al inicio ni al final
 
     try {
-        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
-        const writer = fs.createWriteStream(tempFile);
+        console.log(`⏳ Iniciando descarga de: ${track.url}`);
         
-        return new Promise((resolve) => {
+        // 1. DESCARGA: Obtener el archivo como stream
+        const response = await axios({ 
+            url: track.url, 
+            method: 'GET', 
+            responseType: 'stream' 
+        });
+
+        const writer = fs.createWriteStream(tempFile);
+
+        // Promesa para asegurar que la descarga terminó antes de seguir
+        await new Promise((resolve, reject) => {
             response.data.pipe(writer);
-            writer.on('finish', async () => {
-                try {
-                    const form = new FormData();
-                    
-                    // 1. El campo 'path' indica a AzuraCast la carpeta de destino
-                    form.append('path', carpetaDestino); 
-
-                    // 2. El archivo se envía con su nombre simple
-                    form.append('file', fs.createReadStream(tempFile), { 
-                        filename: nombreArchivo,
-                        contentType: 'audio/mpeg'
-                    });
-
-                    // 3. Petición POST a la API de AzuraCast
-                    await axios.post(AZURA_API_UPLOAD, form, { 
-                        headers: { 
-                            ...form.getHeaders(), 
-                            "X-API-Key": KEYS.AZURA 
-                        },
-                        // Importante: Aumentar timeout para archivos grandes
-                        timeout: 90000 
-                    });
-
-                    console.log(`✅ ${nombreArchivo} guardado en: ${carpetaDestino}`);
-
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(true);
-                } catch (err) { 
-                    console.error("❌ Error subiendo a Azura:", err.response?.data || err.message);
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(false); 
-                }
+            writer.on('finish', resolve);
+            writer.on('error', (err) => {
+                writer.close();
+                reject(err);
             });
         });
-    } catch (e) { 
-        console.error("❌ Error en descarga de pista:", e.message);
-        return false; 
+
+        console.log(`📦 Descarga completada. Subiendo a AzuraCast...`);
+
+        // 2. PREPARAR MULTIPART: El orden de los campos es vital
+        const form = new FormData();
+        
+        // Primero metadatos (campos de texto)
+        form.append('path', carpetaDestino); 
+
+        // Luego el archivo binario (al final para optimizar el stream del servidor)
+        form.append('file', fs.createReadStream(tempFile), { 
+            filename: nombreArchivo,
+            contentType: 'audio/mpeg'
+        });
+
+        // 3. SUBIDA: Petición POST a la API
+        const res = await axios.post(AZURA_API_UPLOAD, form, { 
+            headers: { 
+                ...form.getHeaders(), 
+                "X-API-Key": KEYS.AZURA 
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            timeout: 120000 // 2 minutos de margen
+        });
+
+        // La respuesta suele ser un objeto con los datos del archivo en Azura
+        const dataAzura = res.data;
+        console.log(`✅ ¡Éxito! Archivo guardado como: ${dataAzura.path}`);
+        
+        return dataAzura; // Retorna la info (ID, path, etc.) para pasos posteriores
+
+    } catch (err) {
+        const errorMsg = err.response?.data?.message || err.message;
+        console.error("❌ Error en el proceso:", errorMsg);
+        return null;
+
+    } finally {
+        // LIMPIEZA: Borrar el archivo temporal siempre, sea éxito o error
+        if (fs.existsSync(tempFile)) {
+            try {
+                fs.unlinkSync(tempFile);
+                console.log(`🧹 Archivo temporal ${idUnico} eliminado.`);
+            } catch (e) {
+                console.error("⚠️ No se pudo borrar el temporal:", e.message);
+            }
+        }
     }
-}  
+} 
 
 async function obtenerAhoraSuena() {
     try {
