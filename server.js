@@ -105,13 +105,9 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     
-    // 1. Nombre estático para que REEMPLACE al anterior siempre
+    // 1. Definimos la ruta completa (Carpeta + Nombre Estático para reemplazar)
     const nombreArchivo = "pedido_actual.mp3";
-    const carpeta = "Musica_Nueva";
-    
-    // 2. Pasamos el path por la URL. Esto es infalible en AzuraCast 
-    // para que no lo mande a la raíz.
-    const urlFinal = `${AZURA_API_UPLOAD}?path=${encodeURIComponent(carpeta + '/' + nombreArchivo)}`;
+    const rutaDestino = `Musica_Nueva/${nombreArchivo}`;
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
@@ -125,30 +121,31 @@ async function descargarYSubirAzura(track) {
                 try {
                     const form = new FormData();
                     
-                    // IMPORTANTE: El campo debe llamarse 'file'
+                    // SEGÚN TU EJEMPLO: El campo 'path' debe llevar la ruta RELATIVA completa
+                    form.append('path', rutaDestino); 
+                    
+                    // El archivo se adjunta después
                     form.append('file', fs.createReadStream(tempFile), { 
                         filename: nombreArchivo 
                     });
 
-                    console.log(`📤 Subiendo y reemplazando en: ${carpeta}/${nombreArchivo}`);
+                    console.log(`📤 Subiendo a: ${rutaDestino}`);
 
-                    await axios.post(urlFinal, form, { 
+                    await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
-                        },
-                        // Evita errores de timeout si la canción es pesada
-                        timeout: 60000 
+                        }
                     });
 
-                    console.log(`✅ ¡Éxito! Archivo en la carpeta Musica_Nueva.`);
+                    console.log(`✅ ¡Logrado! Archivo reemplazado en Musica_Nueva.`);
 
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
 
                 } catch (err) { 
-                    // Esto nos dirá el error exacto en la consola si vuelve a fallar
-                    console.error("❌ Error API Azura:", err.response?.data || err.message);
+                    // Si sale error aquí, revisa si la carpeta existe en el panel
+                    console.error("❌ Error API AzuraCast:", err.response?.data || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
