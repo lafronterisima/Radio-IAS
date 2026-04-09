@@ -91,16 +91,33 @@ bot.on('message', async (msg) => {
 
 async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     const generos = ['salsa', 'reggaeton', 'bachata', 'vallenato'];
-    let parametro = esBusquedaEspecifica ? `search=${encodeURIComponent(query)}` : `fuzzytags=${generos[Math.floor(Math.random() * generos.length)]}&order=ratingdesc`;
-    const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&durationbetween=120_600&${parametro}`;
+    
+    // 1. Añadimos 'vocalinstrumental=vocal' para filtrar solo canciones con voz
+    let baseParametros = `client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&durationbetween=120_600&vocalinstrumental=vocal`;
+    
+    let queryParam = esBusquedaEspecifica 
+        ? `search=${encodeURIComponent(query)}` 
+        : `fuzzytags=${generos[Math.floor(Math.random() * generos.length)]}&order=ratingdesc`;
+    
+    const url = `https://api.jamendo.com/v3.0/tracks/?${baseParametros}&${queryParam}`;
+
     try {
         const res = await axios.get(url, { timeout: 8000 });
         if (res.data.results?.length > 0) {
             const t = res.data.results[0];
-            return { url: t.audio, info: `${t.name} de ${t.artist_name}` };
+            
+            // Verificación extra: Jamendo a veces etiqueta mal, 
+            // pero con el parámetro anterior debería ser suficiente.
+            return { 
+                url: t.audio, 
+                info: `${t.name} de ${t.artist_name}` 
+            };
         }
-    } catch (e) { return null; }
+    } catch (e) { 
+        return null; 
+    }
 }
+  
         
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
