@@ -105,9 +105,14 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     
-    // 1. Nombre estático y carpeta combinados
-    // Esto es lo que AzuraCast v0.23.4 entiende como "Ruta de destino"
-    const nombreConCarpeta = "newsong/pedido_actual.mp3";
+    // 1. Nombre fijo para REEMPLAZAR
+    const nombreArchivo = "pedido_actual.mp3";
+    // 2. Carpeta destino
+    const carpeta = "newsong";
+    
+    // 3. PASAMOS EL PATH POR LA URL (Query Parameter)
+    // Esto es lo que AzuraCast usa para definir el directorio de trabajo de la subida.
+    const urlFinal = `${AZURA_API_UPLOAD}?path=${encodeURIComponent(carpeta)}`;
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
@@ -120,26 +125,21 @@ async function descargarYSubirAzura(track) {
                 try {
                     const form = new FormData();
                     
-                    // TRUCO MAESTRO: Enviamos la ruta completa DENTRO del filename.
-                    // Esto evita que el servidor lo ignore y lo suelte en la raíz.
+                    // Al enviar el archivo, AzuraCast usará el 'path' de la URL para ubicarlo
                     form.append('file', fs.createReadStream(tempFile), { 
-                        filename: nombreConCarpeta,
-                        contentType: 'audio/mpeg'
+                        filename: nombreArchivo 
                     });
 
-                    // También enviamos el path por si acaso, pero el filename manda
-                    form.append('path', 'newsong');
+                    console.log(`📤 Forzando subida a carpeta: ${carpeta}`);
 
-                    console.log(`📤 Forzando subida a: ${nombreConCarpeta}`);
-
-                    await axios.post(AZURA_API_UPLOAD, form, { 
+                    await axios.post(urlFinal, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
                         }
                     });
 
-                    console.log(`✅ ¡Éxito! El archivo ahora debe estar en /newsong`);
+                    console.log(`✅ ¡Éxito! Archivo reemplazado en /${carpeta}/${nombreArchivo}`);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
 
