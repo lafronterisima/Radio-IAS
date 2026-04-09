@@ -102,55 +102,52 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     } catch (e) { return null; }
 }
         
-
 async function descargarYSubirAzura(track) {
-    const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    
-    // 1. Nombre ESTÁTICO: Al no tener Date.now(), el nuevo archivo reemplaza al viejo
+    // 1. Nombre estático para que siempre REEMPLACE al anterior
     const nombreArchivo = "pedido_actual.mp3";
-    const carpeta = "Musica_Nueva";
-    
-    // 2. Forzamos la carpeta en la URL para asegurar que entre en Musica_Nueva
-    const urlConCarpeta = `${AZURA_API_UPLOAD}?path=${encodeURIComponent(carpeta)}`;
+    const rutaCompleta = `Musica_Nueva/${nombreArchivo}`;
 
     try {
-        console.log(`📥 Descargando para reemplazar: ${track.info}`);
-        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
-        const writer = fs.createWriteStream(tempFile);
+        console.log(`📥 Descargando: ${track.info}`);
         
-        return new Promise((resolve) => {
-            response.data.pipe(writer);
-            writer.on('finish', async () => {
-                try {
-                    const form = new FormData();
-                    
-                    // Al enviar el mismo filename, AzuraCast sobrescribe el existente
-                    form.append('file', fs.createReadStream(tempFile), { 
-                        filename: nombreArchivo 
-                    });
-
-                    await axios.post(urlConCarpeta, form, { 
-                        headers: { 
-                            ...form.getHeaders(), 
-                            "X-API-Key": KEYS.AZURA 
-                        }
-                    });
-
-                    console.log(`✅ Archivo reemplazado en: ${carpeta}/${nombreArchivo}`);
-
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(true);
-
-                } catch (err) { 
-                    console.error("❌ Error al reemplazar en Azura:", err.response?.data || err.message);
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(false); 
-                }
-            });
+        // 2. Descargamos la canción como Buffer (binario)
+        const response = await axios({ 
+            url: track.url, 
+            method: 'GET', 
+            responseType: 'arraybuffer' 
         });
-    } catch (e) { return false; }
+
+        // 3. Convertimos el Buffer a Base64
+        const archivoBase64 = Buffer.from(response.data, 'binary').toString('base64');
+
+        // 4. Creamos el objeto exactamente como pide tu documentación
+        const payload = {
+            path: rutaCompleta, // Aquí va: carpeta/nombre.mp3
+            file: archivoBase64  // El contenido en base64
+        };
+
+        console.log(`📤 Subiendo a: ${rutaCompleta} (Modo reemplazo)...`);
+
+        // 5. Enviamos como JSON (No FormData)
+        await axios.post(AZURA_API_UPLOAD, payload, {
+            headers: {
+                "X-API-Key": KEYS.AZURA,
+                "Content-Type": "application/json"
+            },
+            // Importante aumentar límites para archivos grandes
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+        });
+
+        console.log(`✅ ¡Logrado! Archivo reemplazado en Musica_Nueva/${nombreArchivo}`);
+        return true;
+
+    } catch (e) {
+        console.error("❌ Error en subida técnica:", e.response?.data || e.message);
+        return false;
+    }
 }
-}
+
 
 async function obtenerAhoraSuena() {
     try {
