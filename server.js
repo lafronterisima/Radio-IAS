@@ -7,6 +7,7 @@ const FormData = require("form-data");
 const { exec } = require("child_process");
 const path = require("path");
 const TelegramBot = require('node-telegram-bot-api');
+const { pipeline } = require('stream/promises');
 
 const app = express();
 app.use(express.json());
@@ -30,9 +31,6 @@ const KEYS = {
 
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
-
-const { pipeline } = require('stream/promises');
-
 
 // ======= 2. TELEGRAM (SALUDOS Y PEDIDOS) =======
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
@@ -129,56 +127,55 @@ async function descargarYSubirAzura(track) {
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
+        
         const response = await axios({ 
             url: track.url, 
             method: 'GET', 
             responseType: 'stream' 
         });
 
-        const writer = fs.createWriteStream(tempFile);
-        response.data.pipe(writer);
+        // pipeline espera a que el archivo esté TOTALMENTE escrito y cerrado en el disco
+        await pipeline(response.data, fs.createWriteStream(tempFile));
+        console.log("✅ Archivo temporal guardado y cerrado.");
 
-        return new Promise((resolve) => {
-            writer.on('finish', async () => {
-                try {
-                    const form = new FormData();
-                    
-                    /**
-                     * CRÍTICO PARA v0.23.4:
-                     * 1. El campo 'path' debe ser la ruta relativa de la CARPETA.
-                     * 2. El campo 'file' debe incluir el nombre del archivo final.
-                     */
-                    form.append('path', carpeta); 
-                    form.append('file', fs.createReadStream(tempFile), { 
-                        filename: nombreArchivo,
-                        contentType: 'audio/mpeg'
-                    });
-
-                    console.log(`📤 Subiendo a /${carpeta}/${nombreArchivo}...`);
-
-                    await axios.post(AZURA_API_UPLOAD, form, { 
-                        headers: { 
-                            ...form.getHeaders(), 
-                            "X-API-Key": KEYS.AZURA 
-                        },
-                        // Evita el timeout en PHP 8.5
-                        timeout: 120000 
-                    });
-
-                    console.log(`✅ ¡Éxito! Archivo reemplazado correctamente.`);
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(true);
-
-                } catch (err) {
-                    // En esta versión, AzuraCast devuelve el error detallado en err.response.data
-                    console.error("❌ Error de AzuraCast:", err.response?.data?.message || err.message);
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(false);
-                }
-            });
+        // Crear el formulario después de que el archivo esté listo
+        const form = new FormData();
+        
+        /**
+         * AzuraCast v0.23.4+ espera:
+         * 'path': la carpeta relativa (ej: "Musica_Nueva")
+         * 'file': el stream del archivo con su nombre
+         */
+        form.append('path', carpeta); 
+        form.append('file', fs.createReadStream(tempFile), { 
+            filename: nombreArchivo,
+            contentType: 'audio/mpeg'
         });
-    } catch (e) {
-        console.error("❌ Error de descarga:", e.message);
+
+        console.log(`📤 Subiendo a AzuraCast: /${carpeta}/${nombreArchivo}...`);
+
+        await axios.post(AZURA_API_UPLOAD, form, { 
+            headers: { 
+                ...form.getHeaders(), 
+                "X-API-Key": KEYS.AZURA 
+            },
+            timeout: 120000,
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+        });
+
+        console.log(`✅ ¡Éxito! Archivo procesado en AzuraCast.`);
+        
+        // Limpieza
+        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        return true;
+
+    } catch (err) {
+        // Capturamos el error detallado de la API de AzuraCast
+        const errorMsg = err.response?.data?.message || err.message;
+        console.error("❌ Error en el proceso:", errorMsg);
+        
+        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         return false;
     }
 }
