@@ -102,14 +102,15 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     } catch (e) { return null; }
 }
 
+
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    // Definimos el nombre que tendrá el archivo en el servidor
-    const nombreArchivo = `pedido_${Date.now()}.mp3`;
-    // Definimos la carpeta destino (asegúrate de que exista en AzuraCast)
+    // Esta es la carpeta destino según tu URL
     const carpetaDestino = "Musica_Nueva"; 
+    const nombreArchivo = `pedido_${Date.now()}.mp3`;
 
     try {
+        console.log(`📥 Descargando canción: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         
@@ -119,10 +120,11 @@ async function descargarYSubirAzura(track) {
                 try {
                     const form = new FormData();
                     
-                    // 1. Enviamos el archivo con su nombre específico
+                    // 1. El archivo físico con su nombre
                     form.append('file', fs.createReadStream(tempFile), { filename: nombreArchivo });
                     
-                    // 2. Enviamos SOLO el nombre de la carpeta en el campo path
+                    // 2. El 'path' le dice a AzuraCast en qué carpeta soltarlo
+                    // Importante: No debe llevar "/" al inicio
                     form.append('path', carpetaDestino);
 
                     await axios.post(AZURA_API_UPLOAD, form, { 
@@ -132,17 +134,23 @@ async function descargarYSubirAzura(track) {
                         } 
                     });
 
+                    console.log(`✅ Éxito: Guardado en /station/24/files/${carpetaDestino}`);
+
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
                 } catch (err) { 
-                    console.error("Error al subir:", err.response?.data || err.message);
+                    console.error("❌ Error al subir a la carpeta específica:", err.response?.data || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
             });
         });
-    } catch (e) { return false; }
-}
+    } catch (e) { 
+        console.error("❌ Error en la descarga:", e.message);
+        return false; 
+    }
+}                  
+              
 
 async function obtenerAhoraSuena() {
     try {
