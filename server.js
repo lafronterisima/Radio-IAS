@@ -104,87 +104,71 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 
 
 
-/**
- * Descarga un track desde una URL y lo sube automáticamente a AzuraCast.
- * @param {Object} track - Objeto con la información del track (debe tener .url)
- */
+// URL CORREGIDA: Se añade /api/ antes de /station/
+const AZURA_API_UPLOAD = 'https://az.azurafree.eu/api/station/24/files/upload';
+const AZURA_KEY = '3fe83928421317df:fded3074080312a158077455cc24419c';
+
 async function descargarYSubirAzura(track) {
-    // Generamos un nombre único para el archivo temporal y el destino
     const idUnico = Date.now();
+    // Guardamos temporalmente como mp3 para mantener consistencia
     const tempFile = path.join(__dirname, `tmp_${idUnico}.mp3`);
-    const nombreArchivo = `${idUnico}_pedido.mp3`;
-    const carpetaDestino = "Musica_Nueva"; // Sin barras / al inicio ni al final
+    
+    const carpeta = "diss";
+    const nombreFinal = `pedido_${idUnico}.mp3`;
+    const pathCompleto = `${carpeta}/${nombreFinal}`;
 
     try {
-        console.log(`⏳ Iniciando descarga de: ${track.url}`);
-        
-        // 1. DESCARGA: Obtener el archivo como stream
-        const response = await axios({ 
-            url: track.url, 
-            method: 'GET', 
-            responseType: 'stream' 
-        });
-
+        console.log(`⏳ Descargando track...`);
+        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
 
-        // Promesa para asegurar que la descarga terminó antes de seguir
         await new Promise((resolve, reject) => {
             response.data.pipe(writer);
             writer.on('finish', resolve);
-            writer.on('error', (err) => {
-                writer.close();
-                reject(err);
-            });
+            writer.on('error', reject);
         });
 
-        console.log(`📦 Descarga completada. Subiendo a AzuraCast...`);
-
-        // 2. PREPARAR MULTIPART: El orden de los campos es vital
+        console.log(`🚀 Subiendo a AzuraCast (Carpeta: ${carpeta})...`);
         const form = new FormData();
         
-        // Primero metadatos (campos de texto)
-        form.append('path', carpetaDestino); 
-
-        // Luego el archivo binario (al final para optimizar el stream del servidor)
-        form.append('file', fs.createReadStream(tempFile), { 
-            filename: nombreArchivo,
+        // El orden que definimos como crucial:
+        form.append('path', pathCompleto);
+        form.append('currentDirectory', carpeta);
+        
+        // El archivo siempre al final
+        form.append('file', fs.createReadStream(tempFile), {
+            filename: nombreFinal,
             contentType: 'audio/mpeg'
         });
 
-        // 3. SUBIDA: Petición POST a la API
         const res = await axios.post(AZURA_API_UPLOAD, form, { 
             headers: { 
-                ...form.getHeaders(), 
-                "X-API-Key": KEYS.AZURA 
+                ...form.getHeaders(),
+                'X-API-Key': AZURA_KEY
             },
             maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            timeout: 120000 // 2 minutos de margen
+            maxBodyLength: Infinity
         });
 
-        // La respuesta suele ser un objeto con los datos del archivo en Azura
-        const dataAzura = res.data;
-        console.log(`✅ ¡Éxito! Archivo guardado como: ${dataAzura.path}`);
-        
-        return dataAzura; // Retorna la info (ID, path, etc.) para pasos posteriores
+        console.log(`✅ ¡Éxito! Archivo disponible en: ${res.data.path}`);
+        return res.data;
 
     } catch (err) {
-        const errorMsg = err.response?.data?.message || err.message;
-        console.error("❌ Error en el proceso:", errorMsg);
+        // Manejo de errores detallado
+        if (err.response) {
+            console.error("❌ Error de la API:", err.response.status, err.response.data);
+        } else {
+            console.error("❌ Error de red/sistema:", err.message);
+        }
         return null;
-
     } finally {
-        // LIMPIEZA: Borrar el archivo temporal siempre, sea éxito o error
         if (fs.existsSync(tempFile)) {
-            try {
-                fs.unlinkSync(tempFile);
-                console.log(`🧹 Archivo temporal ${idUnico} eliminado.`);
-            } catch (e) {
-                console.error("⚠️ No se pudo borrar el temporal:", e.message);
-            }
+            try { fs.unlinkSync(tempFile); } catch (e) {}
         }
     }
 }
+
+
 
 
 async function obtenerAhoraSuena() {
