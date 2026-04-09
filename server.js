@@ -104,15 +104,12 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
         
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    
-    // 1. Nombre fijo para REEMPLAZAR
     const nombreArchivo = "pedido_actual.mp3";
-    // 2. Carpeta destino
-    const carpeta = "newsong";
     
-    // 3. PASAMOS EL PATH POR LA URL (Query Parameter)
-    // Esto es lo que AzuraCast usa para definir el directorio de trabajo de la subida.
-    const urlFinal = `${AZURA_API_UPLOAD}?path=${encodeURIComponent(carpeta)}`;
+    // TRUCO DE RUTA: En v0.23.4, a veces el path debe empezar con '/'
+    // o ser la ruta completa desde el almacenamiento.
+    const carpetaDestino = "newsong"; 
+    const rutaParaAzura = `/${carpetaDestino}/${nombreArchivo}`;
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
@@ -125,21 +122,27 @@ async function descargarYSubirAzura(track) {
                 try {
                     const form = new FormData();
                     
-                    // Al enviar el archivo, AzuraCast usará el 'path' de la URL para ubicarlo
+                    // 1. Enviamos el path con la barra inicial '/'
+                    form.append('path', `/${carpetaDestino}`); 
+                    
+                    // 2. Adjuntamos el archivo
                     form.append('file', fs.createReadStream(tempFile), { 
                         filename: nombreArchivo 
                     });
 
-                    console.log(`📤 Forzando subida a carpeta: ${carpeta}`);
+                    console.log(`📤 Forzando subida a carpeta: ${carpetaDestino}`);
 
-                    await axios.post(urlFinal, form, { 
+                    // 3. Pasamos el path también en la URL por si acaso
+                    const urlConCarpeta = `${AZURA_API_UPLOAD}?path=${encodeURIComponent('/' + carpetaDestino)}`;
+
+                    await axios.post(urlConCarpeta, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
                         }
                     });
 
-                    console.log(`✅ ¡Éxito! Archivo reemplazado en /${carpeta}/${nombreArchivo}`);
+                    console.log(`✅ ¡Éxito! El archivo debe estar en newsong/${nombreArchivo}`);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
 
@@ -152,6 +155,7 @@ async function descargarYSubirAzura(track) {
         });
     } catch (e) { return false; }
 }
+
 
 async function obtenerAhoraSuena() {
     try {
