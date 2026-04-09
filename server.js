@@ -105,16 +105,16 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    const nombreArchivo = `pedido_${Date.now()}.mp3`;
     
-    // 1. Especificamos la carpeta destino
+    // 1. Nombre ESTÁTICO: Al no tener Date.now(), el nuevo archivo reemplaza al viejo
+    const nombreArchivo = "pedido_actual.mp3";
     const carpeta = "Musica_Nueva";
     
-    // 2. Construimos la URL de subida incluyendo el parámetro path
-    // Esto obliga a AzuraCast a usar esa carpeta
+    // 2. Forzamos la carpeta en la URL para asegurar que entre en Musica_Nueva
     const urlConCarpeta = `${AZURA_API_UPLOAD}?path=${encodeURIComponent(carpeta)}`;
 
     try {
+        console.log(`📥 Descargando para reemplazar: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         
@@ -124,12 +124,10 @@ async function descargarYSubirAzura(track) {
                 try {
                     const form = new FormData();
                     
-                    // Solo enviamos el archivo, ya que el path va en la URL
+                    // Al enviar el mismo filename, AzuraCast sobrescribe el existente
                     form.append('file', fs.createReadStream(tempFile), { 
                         filename: nombreArchivo 
                     });
-
-                    console.log(`📤 Forzando subida a carpeta: ${carpeta}`);
 
                     await axios.post(urlConCarpeta, form, { 
                         headers: { 
@@ -138,19 +136,20 @@ async function descargarYSubirAzura(track) {
                         }
                     });
 
-                    console.log(`✅ Archivo ubicado correctamente en /${carpeta}`);
+                    console.log(`✅ Archivo reemplazado en: ${carpeta}/${nombreArchivo}`);
 
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
 
                 } catch (err) { 
-                    console.error("❌ Error en Azura:", err.response?.data || err.message);
+                    console.error("❌ Error al reemplazar en Azura:", err.response?.data || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
             });
         });
     } catch (e) { return false; }
+}
 }
 
 async function obtenerAhoraSuena() {
