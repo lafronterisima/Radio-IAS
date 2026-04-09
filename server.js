@@ -104,50 +104,63 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
         
 
 async function descargarYSubirAzura(track) {
-    const nombreArchivo = `${Date.now()}_pedido.mp3`;
-    const caminoDestino = `Musica_Nueva/${nombreArchivo}`;
+    const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    const nombreArchivo = `pedido_${Date.now()}.mp3`;
+    const carpetaDestino = "Musica_Nueva"; 
 
     try {
-        console.log(`📥 Descargando de Jamendo: ${track.info}`);
+        console.log(`📥 Descargando: ${track.info}`);
+        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
+        const writer = fs.createWriteStream(tempFile);
         
-        // 1. Descargamos la canción
-        const response = await axios({ 
-            url: track.url, 
-            method: 'GET', 
-            responseType: 'arraybuffer',
-            timeout: 15000 // 15 segundos de límite para descargar
+        return new Promise((resolve) => {
+            response.data.pipe(writer);
+            
+            writer.on('finish', async () => {
+                try {
+                    const form = new FormData();
+                    
+                    // 1. EL "CAMINO" (PATH) DEBE IR PRIMERO QUE EL ARCHIVO
+                    // Aquí indicamos SOLO el nombre de la carpeta
+                    form.append('path', carpetaDestino); 
+
+                    // 2. EL ARCHIVO CON SU NOMBRE
+                    form.append('file', fs.createReadStream(tempFile), { 
+                        filename: nombreArchivo,
+                        contentType: 'audio/mpeg'
+                    });
+
+                    console.log(`📤 Subiendo a la carpeta ${carpetaDestino}...`);
+
+                    await axios.post(AZURA_API_UPLOAD, form, { 
+                        headers: { 
+                            ...form.getHeaders(), 
+                            "X-API-Key": KEYS.AZURA 
+                        },
+                        timeout: 60000 // Damos 1 minuto para la subida
+                    });
+
+                    console.log(`✅ ¡Subido con éxito a Musica_Nueva!`);
+
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(true);
+
+                } catch (err) { 
+                    // Esto nos dirá si es problema de la Carpeta (404) o de la Key (403)
+                    console.error("❌ Error en la API de AzuraCast:", err.response?.status, err.response?.data);
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(false); 
+                }
+            });
+
+            writer.on('error', (err) => {
+                console.error("❌ Error al crear archivo temporal:", err);
+                resolve(false);
+            });
         });
-
-        // 2. Convertimos a Base64
-        const archivoBase64 = Buffer.from(response.data, 'binary').toString('base64');
-
-        // 3. Enviamos a AzuraCast con los nombres de campos exactos
-        console.log(`📤 Subiendo a AzuraCast en: ${caminoDestino}`);
-
-        await axios.post(AZURA_API_UPLOAD, {
-            path: caminoDestino,    // Prueba con 'path' si 'camino' falla
-            file: archivoBase64     // Prueba con 'file' si 'archivo' falla
-        }, {
-            headers: {
-                "X-API-Key": KEYS.AZURA,
-                "Content-Type": "application/json"
-            },
-            // Aumentamos los límites de tamaño para no truncar el envío
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
-        });
-
-        console.log(`✅ ¡Éxito! Archivo guardado en la carpeta.`);
-        return true;
-
-    } catch (e) {
-        // ESTO ES LO MÁS IMPORTANTE: Ver el error real en la consola
-        if (e.response) {
-            console.error("❌ Error de la API de Azura:", e.response.status, e.response.data);
-        } else {
-            console.error("❌ Error de conexión:", e.message);
-        }
-        return false;
+    } catch (e) { 
+        console.error("❌ Error en la descarga de Jamendo:", e.message);
+        return false; 
     }
 }
 
