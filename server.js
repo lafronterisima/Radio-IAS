@@ -104,50 +104,47 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
         
 
 async function descargarYSubirAzura(track) {
-    const tempFile = path.join(__dirname, 'tmp_track.mp3');
     const nombreArchivo = `${Date.now()}_pedido.mp3`;
-    const carpetaDestino = "Musica_Nueva"; 
+    const caminoDestino = `Musica_Nueva/${nombreArchivo}`;
 
     try {
-        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
-        const writer = fs.createWriteStream(tempFile);
+        console.log(`📥 Descargando: ${track.info}`);
         
-        return new Promise((resolve) => {
-            response.data.pipe(writer);
-            writer.on('finish', async () => {
-                try {
-                    const form = new FormData();
-                    
-                    // 1. EL "CAMINO" (PATH) DEBE IR PRIMERO
-                    // Esto prepara al servidor para recibir el archivo en esa ruta
-                    form.append('path', carpetaDestino); 
-
-                    // 2. EL "ARCHIVO" (FILE) DEBE IR DESPUÉS
-                    // Incluimos explícitamente el filename para que no use el nombre del temporal
-                    form.append('file', fs.createReadStream(tempFile), { 
-                        filename: nombreArchivo,
-                        contentType: 'audio/mpeg'
-                    });
-
-                    await axios.post(AZURA_API_UPLOAD, form, { 
-                        headers: { 
-                            ...form.getHeaders(), 
-                            "X-API-Key": KEYS.AZURA 
-                        } 
-                    });
-
-                    console.log(`✅ Archivo en: files/${carpetaDestino}/${nombreArchivo}`);
-
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(true);
-                } catch (err) { 
-                    console.error("❌ Error de API:", err.response?.data || err.message);
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(false); 
-                }
-            });
+        // 1. Descargamos la canción como un Buffer (datos binarios)
+        const response = await axios({ 
+            url: track.url, 
+            method: 'GET', 
+            responseType: 'arraybuffer' 
         });
-    } catch (e) { return false; }
+
+        // 2. Convertimos el Buffer a una cadena Base64
+        const archivoBase64 = Buffer.from(response.data, 'binary').toString('base64');
+
+        // 3. Preparamos el cuerpo de la petición según tu esquema
+        const datosCarga = {
+            camino: caminoDestino,
+            archivo: archivoBase64
+        };
+
+        console.log(`📤 Subiendo a: ${caminoDestino}...`);
+
+        // 4. Enviamos el JSON a la API
+        await axios.post(AZURA_API_UPLOAD, datosCarga, {
+            headers: {
+                "X-API-Key": KEYS.AZURA,
+                "Content-Type": "application/json"
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
+        });
+
+        console.log(`✅ ¡Logrado! Canción en la carpeta Musica_Nueva.`);
+        return true;
+
+    } catch (e) {
+        console.error("❌ Error en la subida Base64:", e.response?.data || e.message);
+        return false;
+    }
 }
 
 
