@@ -132,13 +132,19 @@ async function solicitarCancion(pathArchivo) {
 }
 
 // Modifica la parte final de descargarYSubirAzura
-async function descargarYSubirAzura(track) {
+
+ async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    // Si prefieres no crear carpetas, quita "Musica_Nueva/" de la siguiente línea
-    const nombreEnServidor = `Musica_Nueva/pedido_${Date.now()}.mp3`; 
+    
+    // 1. Definimos el nombre que tendrá el archivo
+    const nombreArchivo = `${Date.now()}_pedido.mp3`; 
+    // 2. Definimos SOLO la carpeta
+    const carpetaDestino = "Musica_Nueva"; 
+    // 3. El path completo para buscarlo luego en solicitarCancion
+    const pathCompletoParaAzura = `${carpetaDestino}/${nombreArchivo}`;
 
     try {
-        console.log(`📥 Descargando de Jamendo: ${track.info}`);
+        console.log(`📥 Descargando: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         
@@ -147,38 +153,36 @@ async function descargarYSubirAzura(track) {
             
             writer.on('finish', async () => {
                 try {
-                    console.log(`📤 Subiendo a AzuraCast...`);
                     const form = new FormData();
-                    // Pasamos el stream, y le decimos el nombre del archivo explícitamente
-                    form.append('file', fs.createReadStream(tempFile), { filename: path.basename(nombreEnServidor) });
-                    form.append('path', nombreEnServidor);
+                    
+                    // IMPORTANTE: Aquí pasamos el stream y el nombre del archivo por separado
+                    form.append('file', fs.createReadStream(tempFile), { filename: nombreArchivo });
+                    
+                    // IMPORTANTE: Aquí mandamos SOLO el nombre de la carpeta
+                    form.append('path', carpetaDestino);
 
                     await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
-                        timeout: 60000 
+                        timeout: 30000 
                     });
 
-                    console.log("✅ ¡Archivo subido correctamente!");
+                    console.log(`✅ Subido a: ${pathCompletoParaAzura}`);
 
-                    // Borrar el temporal después de subir
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
 
-                    // Solicitar la canción para que suene
-                    const solicitada = await solicitarCancion(nombreEnServidor);
+                    // Ahora buscamos el ID usando el path combinado (Carpeta/Archivo)
+                    const solicitada = await solicitarCancion(pathCompletoParaAzura);
                     resolve(solicitada);
 
                 } catch (err) { 
-                    console.error("❌ Error al subir a AzuraCast:", err.response?.data || err.message);
+                    console.error("❌ Error en Upload:", err.response?.data || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
             });
         });
-    } catch (e) { 
-        console.error("❌ Error en la descarga inicial:", e.message);
-        return false; 
-    }
-}
+    } catch (e) { return false; }
+}          
 
 async function obtenerAhoraSuena() {
     try {
