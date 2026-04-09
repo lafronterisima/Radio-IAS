@@ -120,55 +120,7 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 }
   
         
-async function descargarYSubirAzura(track) {
-    const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    const nombreArchivo = "pedido_actual.mp3";
-    const carpetaDestino = "./Musica_Nueva"; // Asegúrate de que este nombre sea exacto
 
-    try {
-        console.log(`📥 Descargando: ${track.info}`);
-        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
-        await pipeline(response.data, fs.createWriteStream(tempFile));
-
-        const form = new FormData();
-
-        /**
-         * CORRECCIÓN CLAVE: 
-         * 1. Algunas versiones de AzuraCast requieren que el path NO tenga "/" al inicio.
-         * 2. El campo 'path' debe enviarse ANTES que el campo 'file' en el FormData.
-         */
-        form.append('path', carpetaDestino); 
-
-        // Pasamos el stream del archivo
-        form.append('file', fs.createReadStream(tempFile), { 
-            filename: nombreArchivo,
-            contentType: 'audio/mpeg'
-        });
-
-        console.log(`📤 Subiendo a AzuraCast en: ${carpetaDestino}/${nombreArchivo}`);
-
-        await axios.post(AZURA_API_UPLOAD, form, { 
-            headers: { 
-                ...form.getHeaders(), 
-                "X-API-Key": KEYS.AZURA 
-            },
-            // Configuraciones de seguridad para archivos grandes
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            timeout: 120000 
-        });
-
-        console.log(`✅ ¡Éxito! Verificado en /${carpetaDestino}/${nombreArchivo}`);
-        
-        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        return true;
-
-    } catch (err) {
-        console.error("❌ Error Azura:", err.response?.data?.message || err.message);
-        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        return false;
-    }
-}
 
 
 async function solicitarCancionEnAzura(mediaId) {
@@ -184,7 +136,56 @@ async function solicitarCancionEnAzura(mediaId) {
     }
 }
 
+async function descargarYSubirAzura(track) {
+    const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    const nombreArchivo = "pedido_actual.mp3";
+    // 1. IMPORTANTE: Quita el "./" y usa solo el nombre de la carpeta
+    const carpetaDestino = "Musica_Nueva"; 
 
+    try {
+        console.log(`📥 Descargando: ${track.info}`);
+        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
+        await pipeline(response.data, fs.createWriteStream(tempFile));
+
+        const form = new FormData();
+
+        // 2. ORDEN: El path siempre primero. 
+        // Probamos sin puntos ni barras para máxima compatibilidad.
+        form.append('path', carpetaDestino); 
+
+        // 3. LA CLAVE: En muchas versiones de AzuraCast, el 'filename' 
+        // debe incluir la ruta completa para forzar la ubicación.
+        const rutaRelativaCompleta = `${carpetaDestino}/${nombreArchivo}`;
+
+        form.append('file', fs.createReadStream(tempFile), { 
+            filename: rutaRelativaCompleta, // <-- Forzamos la ruta aquí
+            contentType: 'audio/mpeg'
+        });
+
+        console.log(`📤 Subiendo a: ${rutaRelativaCompleta}`);
+
+        await axios.post(AZURA_API_UPLOAD, form, { 
+            headers: { 
+                ...form.getHeaders(), 
+                "X-API-Key": KEYS.AZURA 
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            timeout: 120000 
+        });
+
+        console.log(`✅ ¡Éxito! Archivo ubicado en ${rutaRelativaCompleta}`);
+        
+        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        return true;
+
+    } catch (err) {
+        // Log detallado para ver qué dice el servidor exactamente
+        console.error("❌ Error Azura:", err.response?.data || err.message);
+        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        return false;
+    }
+}
 
 async function obtenerAhoraSuena() {
     try {
