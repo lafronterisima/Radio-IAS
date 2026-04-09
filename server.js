@@ -104,68 +104,62 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
         
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    
-    // 1. Nombre fijo para REEMPLAZAR
     const nombreArchivo = "pedido_actual.mp3";
-    // 2. Carpeta destino limpia
     const carpeta = "Musica_Nueva";
-    
-    // 3. Endpoint correcto con el path como parámetro de consulta (Query Param)
-    // Usamos 'path' porque es el estándar de la API de AzuraCast para uploads.
-    const urlFinal = `${AZURA_API_UPLOAD}?path=${encodeURIComponent(carpeta)}`;
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
         const response = await axios({ 
             url: track.url, 
             method: 'GET', 
-            responseType: 'stream',
-            timeout: 30000 // Aumentamos el tiempo de espera a 30 seg
+            responseType: 'stream' 
         });
 
         const writer = fs.createWriteStream(tempFile);
-        
+        response.data.pipe(writer);
+
         return new Promise((resolve) => {
-            response.data.pipe(writer);
-            
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
                     
-                    // Adjuntamos el archivo con el nombre fijo
+                    /**
+                     * CRÍTICO PARA v0.23.4:
+                     * 1. El campo 'path' debe ser la ruta relativa de la CARPETA.
+                     * 2. El campo 'file' debe incluir el nombre del archivo final.
+                     */
+                    form.append('path', carpeta); 
                     form.append('file', fs.createReadStream(tempFile), { 
                         filename: nombreArchivo,
                         contentType: 'audio/mpeg'
                     });
 
-                    console.log(`📤 Subiendo a AzuraCast (Carpeta: ${carpeta})...`);
+                    console.log(`📤 Subiendo a /${carpeta}/${nombreArchivo}...`);
 
-                    await axios.post(urlFinal, form, { 
+                    await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
                         },
-                        // IMPORTANTE: Los errores TIMED_OUT se evitan dando más tiempo
-                        timeout: 90000, 
-                        maxContentLength: Infinity,
-                        maxBodyLength: Infinity
+                        // Evita el timeout en PHP 8.5
+                        timeout: 120000 
                     });
 
-                    console.log(`✅ ¡Éxito! Archivo reemplazado en ${carpeta}/${nombreArchivo}`);
-
+                    console.log(`✅ ¡Éxito! Archivo reemplazado correctamente.`);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
 
-                } catch (err) { 
-                    console.error("❌ Error en la API de AzuraCast:", err.response?.status, err.response?.data);
+                } catch (err) {
+                    // En esta versión, AzuraCast devuelve el error detallado en err.response.data
+                    console.error("❌ Error de AzuraCast:", err.response?.data?.message || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(false); 
+                    resolve(false);
                 }
             });
         });
-    } catch (e) { 
-        console.error("❌ Error de red/descarga:", e.message);
-        return false; 
+    } catch (e) {
+        console.error("❌ Error de descarga:", e.message);
+        return false;
     }
 }
 
