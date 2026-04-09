@@ -104,15 +104,10 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    const nombreArchivo = `pedido_${Date.now()}.mp3`;
-    
-    // Codificamos el path para la URL
-    const carpetaDestino = encodeURIComponent("Musica_Nueva");
-    // Nueva URL con el parámetro path incluido
-    const urlConPath = `${AZURA_API_UPLOAD}?path=${carpetaDestino}`;
+    const nombreArchivo = `${Date.now()}_pedido.mp3`;
+    const carpetaDestino = "Musica_Nueva"; 
 
     try {
-        console.log(`📥 Descargando: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         
@@ -121,24 +116,25 @@ async function descargarYSubirAzura(track) {
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
-                    // Importante: El nombre del archivo debe ir en el stream
+                    
+                    // ORDEN CRÍTICO: El path debe ir PRIMERO que el archivo en el FormData
+                    form.append('path', carpetaDestino); 
                     form.append('file', fs.createReadStream(tempFile), { filename: nombreArchivo });
 
-                    console.log(`📤 Subiendo a la carpeta: Musica_Nueva...`);
-                    
-                    await axios.post(urlConPath, form, { 
+                    // Usamos la URL limpia de la API
+                    await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
                         } 
                     });
 
-                    console.log(`✅ ¡Logrado! Archivo en Musica_Nueva/${nombreArchivo}`);
+                    console.log(`✅ Confirmado: ${nombreArchivo} subido a ${carpetaDestino}`);
 
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
                 } catch (err) { 
-                    console.error("❌ Error de Azura:", err.response?.data || err.message);
+                    console.error("❌ Error en la subida:", err.response?.data || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
