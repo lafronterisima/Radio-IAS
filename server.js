@@ -122,30 +122,8 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 }
   
         
-// 🎙️ ENVIAR AL STREAM (INTERRUMPE LA RADIO)
-function enviarAlStream(filePath) {
-
-    const comando = `
-    ffmpeg -re -i "${filePath}" \
-    -acodec libmp3lame -ab 128k -ar 44100 -ac 2 \
-    -f mp3 "${ICECAST_URL}"
-    `;
-
-    console.log("🎙️ EN VIVO → enviando al stream...");
-
-    exec(comando, (err) => {
-        if (err) {
-            console.error("❌ Error streaming:", err.message);
-        } else {
-            console.log("✅ Audio sonando en la radio");
-        }
-    });
-}
-
-// 📥 DESCARGAR + SUBIR + MOVER + SONAR
 async function descargarYSubirAzura(track) {
-
-    const tempFile = path.join(__dirname, "tmp_track.mp3");
+    const tempFile = path.join(__dirname, 'tmp_track.mp3');
     const nombreArchivo = `pedido_${Date.now()}.mp3`;
     const carpetaDestino = "Pedidos_IA";
 
@@ -154,24 +132,23 @@ async function descargarYSubirAzura(track) {
 
         const response = await axios({
             url: track.url,
-            method: "GET",
-            responseType: "stream"
+            method: 'GET',
+            responseType: 'stream'
         });
 
         const writer = fs.createWriteStream(tempFile);
         response.data.pipe(writer);
 
         return new Promise((resolve) => {
-
-            writer.on("finish", async () => {
+            writer.on('finish', async () => {
                 try {
                     const form = new FormData();
 
-                    form.append("file", fs.createReadStream(tempFile), {
+                    form.append('file', fs.createReadStream(tempFile), {
                         filename: nombreArchivo
                     });
 
-                    console.log("📤 Subiendo a AzuraCast...");
+                    console.log(`📤 Subiendo...`);
 
                     // 1️⃣ SUBIR
                     await axios.post(AZURA_API_UPLOAD, form, {
@@ -181,9 +158,7 @@ async function descargarYSubirAzura(track) {
                         }
                     });
 
-                    console.log("📂 Moviendo a carpeta...");
-
-                    // 2️⃣ MOVER A CARPETA
+                    // 2️⃣ MOVER
                     await axios.put(
                         `${AZURA_API}/station/${STATION_ID}/file`,
                         {
@@ -197,30 +172,53 @@ async function descargarYSubirAzura(track) {
                         }
                     );
 
-                    console.log("🎙️ Reproduciendo EN VIVO...");
+                    console.log("📂 Archivo movido");
 
-                    // 3️⃣ ENVIAR AL STREAM
-                    enviarAlStream(tempFile);
-
-                    // 🧹 BORRAR DESPUÉS (espera a que termine de emitir)
-                    setTimeout(() => {
-                        if (fs.existsSync(tempFile)) {
-                            fs.unlinkSync(tempFile);
-                            console.log("🗑️ Archivo eliminado");
+                    // 🔥 3️⃣ BUSCAR EL MEDIA ID
+                    const lista = await axios.get(
+                        `${AZURA_API}/station/${STATION_ID}/files`,
+                        {
+                            headers: {
+                                "X-API-Key": KEYS.AZURA
+                            }
                         }
-                    }, 10000);
+                    );
+
+                    const archivo = lista.data.find(f =>
+                        f.path === `${carpetaDestino}/${nombreArchivo}`
+                    );
+
+                    if (!archivo) {
+                        console.log("❌ No se encontró el archivo en Azura");
+                        resolve(false);
+                        return;
+                    }
+
+                    console.log("🎧 ID encontrado:", archivo.id);
+
+                    // 🔥 4️⃣ REPRODUCIR (REQUEST)
+                    await axios.post(
+                        `${AZURA_API}/station/${STATION_ID}/request/${archivo.id}`,
+                        {},
+                        {
+                            headers: {
+                                "X-API-Key": KEYS.AZURA
+                            }
+                        }
+                    );
+
+                    console.log("🚀 Reproduciendo en la radio");
+
+                    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
 
                     resolve(true);
 
                 } catch (err) {
-                    console.error("❌ Error Azura:", err.response?.data || err.message);
-
+                    console.error("❌ Error:", err.response?.data || err.message);
                     if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-
                     resolve(false);
                 }
             });
-
         });
 
     } catch (e) {
@@ -228,34 +226,6 @@ async function descargarYSubirAzura(track) {
         return false;
     }
 }
-
-// 🌐 RUTA PRUEBA
-app.get("/test", async (req, res) => {
-
-    await descargarYSubirAzura({
-        url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-        info: "Audio prueba"
-    });
-
-    res.send("🎙️ Audio enviado a la radio");
-});
-
-// 🎧 PEDIDO POR URL
-app.get("/play", async (req, res) => {
-
-    const url = req.query.url;
-
-    if (!url) {
-        return res.send("❌ Usa: /play?url=LINK_MP3");
-    }
-
-    await descargarYSubirAzura({
-        url: url,
-        info: "Pedido usuario"
-    });
-
-    res.send("🎧 Pedido enviado en vivo");
-});
 
 
 
