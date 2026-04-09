@@ -31,7 +31,7 @@ const KEYS = {
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
-const ICECAST_URL = process.env.ICECAST_URL;
+const { pipeline } = require('stream/promises');
 
 
 // ======= 2. TELEGRAM (SALUDOS Y PEDIDOS) =======
@@ -130,66 +130,59 @@ async function descargarYSubirAzura(track) {
     try {
         console.log(`📥 Descargando: ${track.info}`);
 
+        // 1. DESCARGA EL ARCHIVO AL TEMPORAL
         const response = await axios({
             url: track.url,
             method: 'GET',
             responseType: 'stream'
         });
 
-        const writer = fs.createWriteStream(tempFile);
-        response.data.pipe(writer);
+        // pipeline asegura que el stream termine correctamente antes de seguir
+        await pipeline(response.data, fs.createWriteStream(tempFile));
+        console.log(`✅ Descarga completada localmente.`);
 
-        return new Promise((resolve) => {
-            writer.on('finish', async () => {
-                try {
-                    const form = new FormData();
-
-                    form.append('file', fs.createReadStream(tempFile), {
-                        filename: nombreArchivo
-                    });
-
-                    console.log(`📤 Subiendo a raíz...`);
-
-                    // 1. SUBIR NORMAL
-                    await axios.post(AZURA_API_UPLOAD, form, {
-                        headers: {
-                            ...form.getHeaders(),
-                            "X-API-Key": KEYS.AZURA
-                        }
-                    });
-
-                    console.log(`📂 Moviendo a carpeta ${carpetaDestino}...`);
-
-                    // 2. MOVER ARCHIVO
-                    await axios.put(
-                        `${AZURA_API}/station/${STATION_ID}/file`,
-                        {
-                            path: nombreArchivo,
-                            new_path: `${carpetaDestino}/${nombreArchivo}`
-                        },
-                        {
-                            headers: {
-                                "X-API-Key": KEYS.AZURA
-                            }
-                        }
-                    );
-
-                    console.log(`✅ Archivo movido correctamente`);
-
-                    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-
-                    resolve(true);
-
-                } catch (err) {
-                    console.error("❌ Error Azura:", err.response?.data || err.message);
-                    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(false);
-                }
-            });
+        // 2. PREPARAR FORMULARIO DE SUBIDA
+        const form = new FormData();
+        form.append('file', fs.createReadStream(tempFile), {
+            filename: nombreArchivo
         });
 
-    } catch (e) {
-        console.error("❌ Error descarga:", e.message);
+        console.log(`📤 Subiendo a AzuraCast...`);
+
+        // Subida inicial
+        await axios.post(AZURA_API_UPLOAD, form, {
+            headers: {
+                ...form.getHeaders(),
+                "X-API-Key": KEYS.AZURA
+            }
+        });
+
+        // 3. MOVER ARCHIVO A LA CARPETA DESTINO
+        console.log(`📂 Moviendo a carpeta ${carpetaDestino}...`);
+        await axios.put(
+            `${AZURA_API}/station/${STATION_ID}/file`,
+            {
+                path: nombreArchivo,
+                new_path: `${carpetaDestino}/${nombreArchivo}`
+            },
+            {
+                headers: { "X-API-Key": KEYS.AZURA }
+            }
+        );
+
+        console.log(`✅ Proceso finalizado con éxito`);
+        
+        // Limpieza del temporal
+        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        return true;
+
+    } catch (err) {
+        // Captura errores tanto de Axios como del sistema de archivos
+        console.error("❌ Error en el proceso:", err.response?.data || err.message);
+        
+        if (fs.existsSync(tempFile)) {
+            try { fs.unlinkSync(tempFile); } catch (e) {}
+        }
         return false;
     }
 }
