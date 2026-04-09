@@ -123,7 +123,7 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     const nombreArchivo = "pedido_actual.mp3";
-    const carpetaDestino = "Musica_Nueva"; // Asegúrate de que este nombre sea exacto
+    const carpetaDestino = "./Musica_Nueva"; // Asegúrate de que este nombre sea exacto
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
