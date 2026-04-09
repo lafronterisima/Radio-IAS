@@ -134,36 +134,52 @@ async function solicitarCancion(pathArchivo) {
 // Modifica la parte final de descargarYSubirAzura
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    const nombreEnServidor = `Musica_Nueva/${Date.now()}_pedido.mp3`; // Usar nombre único para evitar conflictos
+    const nombreEnServidor = `Musica_Nueva/${Date.now()}_pedido.mp3`; 
 
     try {
+        console.log(`📥 Descargando: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         
         return new Promise((resolve) => {
             response.data.pipe(writer);
+            
             writer.on('finish', async () => {
                 try {
+                    console.log(`📤 Subiendo a Azura: ${nombreEnServidor}`);
                     const form = new FormData();
                     form.append('file', fs.createReadStream(tempFile));
                     form.append('path', nombreEnServidor);
 
-                    await axios.post(AZURA_API_UPLOAD, form, { 
-                        headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA } 
+                    const uploadRes = await axios.post(AZURA_API_UPLOAD, form, { 
+                        headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
+                        timeout: 30000 // A veces la subida tarda
                     });
+
+                    console.log("✅ Subida exitosa a AzuraCast");
 
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
 
-                    // --- NUEVO: Solicitar la reproducción inmediata ---
+                    // Intentar solicitar la canción
                     const solicitada = await solicitarCancion(nombreEnServidor);
-                    
                     resolve(solicitada);
+
                 } catch (err) { 
+                    console.error("❌ Error en el Upload a Azura:", err.response?.data || err.message);
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
             });
+
+            writer.on('error', (err) => {
+                console.error("❌ Error escribiendo archivo temporal:", err);
+                resolve(false);
+            });
         });
-    } catch (e) { return false; }
+    } catch (e) { 
+        console.error("❌ Error descargando de Jamendo:", e.message);
+        return false; 
+    }
 }
 
 async function obtenerAhoraSuena() {
