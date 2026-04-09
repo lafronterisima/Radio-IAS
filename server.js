@@ -157,6 +157,20 @@ async function descargarYSubirAzura(track) {
 }
 
 
+async function solicitarCancionEnAzura(mediaId) {
+    // El mediaId es el ID que AzuraCast le asigna a 'pedido_actual.mp3'
+    // Puedes encontrarlo en la lista de archivos de música.
+    try {
+        await axios.post(`${BASE_URL_API}/station/24/request/${mediaId}`, {}, {
+            headers: { "X-API-Key": KEYS.AZURA }
+        });
+        console.log("🚀 Canción enviada a la cola de reproducción.");
+    } catch (error) {
+        console.error("No se pudo forzar el pedido:", error.message);
+    }
+}
+
+
 async function obtenerAhoraSuena() {
     try {
         const res = await axios.get(`${AZURA_BASE}/nowplaying`, { timeout: 4000 });
