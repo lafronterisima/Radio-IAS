@@ -122,15 +122,17 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     const nombreArchivo = "pedido_actual.mp3";
-    
-    // TRUCO DE RUTA: En v0.23.4, a veces el path debe empezar con '/'
-    // o ser la ruta completa desde el almacenamiento.
-    const carpetaDestino = "Pedidos_IA"; 
-    const rutaParaAzura = `/${carpetaDestino}/${nombreArchivo}`;
+    const carpetaDestino = "Pedidos_IA";
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
-        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
+
+        const response = await axios({
+            url: track.url,
+            method: 'GET',
+            responseType: 'stream'
+        });
+
         const writer = fs.createWriteStream(tempFile);
         response.data.pipe(writer);
 
@@ -138,39 +140,55 @@ async function descargarYSubirAzura(track) {
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
-                    
-                    // 1. Enviamos el path con la barra inicial '/'
-                    form.append('path', `/${carpetaDestino}`); 
-                    
-                    // 2. Adjuntamos el archivo
-                    form.append('file', fs.createReadStream(tempFile), { 
-                        filename: nombreArchivo 
+
+                    form.append('file', fs.createReadStream(tempFile), {
+                        filename: nombreArchivo
                     });
 
-                    console.log(`📤 Forzando subida a carpeta: ${carpetaDestino}`);
+                    console.log(`📤 Subiendo a raíz...`);
 
-                    // 3. Pasamos el path también en la URL por si acaso
-                    const urlConCarpeta = `${AZURA_API_UPLOAD}?path=${encodeURIComponent('/' + carpetaDestino)}`;
-
-                    await axios.post(urlConCarpeta, form, { 
-                        headers: { 
-                            ...form.getHeaders(), 
-                            "X-API-Key": KEYS.AZURA 
+                    // 1. SUBIR NORMAL
+                    await axios.post(AZURA_API_UPLOAD, form, {
+                        headers: {
+                            ...form.getHeaders(),
+                            "X-API-Key": KEYS.AZURA
                         }
                     });
 
-                    console.log(`✅ ¡Éxito! El archivo debe estar en newsong/${nombreArchivo}`);
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    console.log(`📂 Moviendo a carpeta ${carpetaDestino}...`);
+
+                    // 2. MOVER ARCHIVO
+                    await axios.put(
+                        `${AZURA_API}/station/${STATION_ID}/file`,
+                        {
+                            path: nombreArchivo,
+                            new_path: `${carpetaDestino}/${nombreArchivo}`
+                        },
+                        {
+                            headers: {
+                                "X-API-Key": KEYS.AZURA
+                            }
+                        }
+                    );
+
+                    console.log(`✅ Archivo movido correctamente`);
+
+                    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+
                     resolve(true);
 
-                } catch (err) { 
-                    console.error("❌ Error API Azura:", err.response?.data || err.message);
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(false); 
+                } catch (err) {
+                    console.error("❌ Error Azura:", err.response?.data || err.message);
+                    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(false);
                 }
             });
         });
-    } catch (e) { return false; }
+
+    } catch (e) {
+        console.error("❌ Error descarga:", e.message);
+        return false;
+    }
 }
 
 
