@@ -109,19 +109,17 @@ async function descargarYSubirAzura(track) {
     const carpetaDestino = "Musica_Nueva"; 
 
     try {
-        console.log(`📥 Descargando: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         
         return new Promise((resolve) => {
             response.data.pipe(writer);
-            
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
                     
                     // 1. EL "CAMINO" (PATH) DEBE IR PRIMERO QUE EL ARCHIVO
-                    // Aquí indicamos SOLO el nombre de la carpeta
+                    // Aquí indicamos SOLO el nombre de la carpeta (sin "/" al inicio)
                     form.append('path', carpetaDestino); 
 
                     // 2. EL ARCHIVO CON SU NOMBRE
@@ -130,38 +128,25 @@ async function descargarYSubirAzura(track) {
                         contentType: 'audio/mpeg'
                     });
 
-                    console.log(`📤 Subiendo a la carpeta ${carpetaDestino}...`);
-
                     await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
                         },
-                        timeout: 60000 // Damos 1 minuto para la subida
+                        timeout: 60000 
                     });
-
-                    console.log(`✅ ¡Subido con éxito a Musica_Nueva!`);
 
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
 
                 } catch (err) { 
-                    // Esto nos dirá si es problema de la Carpeta (404) o de la Key (403)
-                    console.error("❌ Error en la API de AzuraCast:", err.response?.status, err.response?.data);
+                    console.error("❌ Error en la API:", err.response?.status, err.response?.data);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
             });
-
-            writer.on('error', (err) => {
-                console.error("❌ Error al crear archivo temporal:", err);
-                resolve(false);
-            });
         });
-    } catch (e) { 
-        console.error("❌ Error en la descarga de Jamendo:", e.message);
-        return false; 
-    }
+    } catch (e) { return false; }
 }
 
 
