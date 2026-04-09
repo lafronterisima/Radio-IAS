@@ -105,12 +105,13 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     
-    // 1. Nombre estático para que REEMPLACE al anterior
+    // 1. Nueva carpeta: newsong
+    // 2. Nombre de archivo fijo para que siempre REEMPLACE al anterior
     const nombreArchivo = "pedido_actual.mp3";
-    // 2. Ruta completa: Carpeta + Nombre
-    const rutaDestino = `Musica_Nueva/${nombreArchivo}`;
+    const rutaDestino = `newsong/${nombreArchivo}`;
 
     try {
+        console.log(`📥 Descargando: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         response.data.pipe(writer);
@@ -120,13 +121,15 @@ async function descargarYSubirAzura(track) {
                 try {
                     const form = new FormData();
                     
-                    // IMPORTANTE: En v0.23.4 el campo 'path' debe llevar la ruta RELATIVA completa
-                    // Esto le indica a la API que debe crear/moverse a esa carpeta
+                    // IMPORTANTE: El campo 'path' con la ruta completa (carpeta/archivo)
+                    // es lo que fuerza a AzuraCast a no dejarlo en la raíz.
                     form.append('path', rutaDestino); 
                     
                     form.append('file', fs.createReadStream(tempFile), { 
                         filename: nombreArchivo 
                     });
+
+                    console.log(`📤 Subiendo y reemplazando en carpeta: newsong`);
 
                     await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { 
@@ -135,18 +138,21 @@ async function descargarYSubirAzura(track) {
                         }
                     });
 
-                    console.log(`✅ Archivo reemplazado en Carpeta: ${rutaDestino}`);
+                    console.log(`✅ ¡Éxito! Archivo disponible en newsong/${nombreArchivo}`);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
 
                 } catch (err) { 
-                    console.error("❌ Error API:", err.response?.data || err.message);
+                    console.error("❌ Error API Azura:", err.response?.data || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
             });
         });
-    } catch (e) { return false; }
+    } catch (e) { 
+        console.error("❌ Error de descarga:", e.message);
+        return false; 
+    }
 }
 
 async function obtenerAhoraSuena() {
