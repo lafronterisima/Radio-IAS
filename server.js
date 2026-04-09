@@ -103,10 +103,10 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 }
 
 
-     async function descargarYSubirAzura(track) {
+   async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     const nombreArchivo = `${Date.now()}_pedido.mp3`;
-    // IMPORTANTE: Asegúrate de que en AzuraCast la carpeta se llame exactamente así
+    // IMPORTANTE: Sin barras diagonales al inicio ni al final
     const carpetaDestino = "Musica_Nueva"; 
 
     try {
@@ -119,41 +119,41 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
                 try {
                     const form = new FormData();
                     
-                    // 1. Enviamos el path como campo (algunas versiones lo requieren)
+                    // 1. El campo 'path' indica a AzuraCast la carpeta de destino
                     form.append('path', carpetaDestino); 
 
-                    // 2. TRUCO CRÍTICO: Inyectamos la carpeta en el nombre del archivo
-                    // Esto fuerza a AzuraCast a colocarlo dentro de la carpeta si el campo path falla.
-                    const rutaFinalEnAzura = `${carpetaDestino}/${nombreArchivo}`;
-                    
+                    // 2. El archivo se envía con su nombre simple
                     form.append('file', fs.createReadStream(tempFile), { 
-                        filename: rutaFinalEnAzura // Aquí es donde ocurre la magia
+                        filename: nombreArchivo,
+                        contentType: 'audio/mpeg'
                     });
 
+                    // 3. Petición POST a la API de AzuraCast
                     await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
                         },
-                        timeout: 60000 // Aumentamos el tiempo por si el archivo es pesado
+                        // Importante: Aumentar timeout para archivos grandes
+                        timeout: 90000 
                     });
 
-                    console.log(`✅ Éxito: ${nombreArchivo} guardado en la carpeta ${carpetaDestino}`);
+                    console.log(`✅ ${nombreArchivo} guardado en: ${carpetaDestino}`);
 
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
                 } catch (err) { 
-                    console.error("❌ Error en la subida:", err.response?.data || err.message);
+                    console.error("❌ Error subiendo a Azura:", err.response?.data || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false); 
                 }
             });
         });
     } catch (e) { 
-        console.error("❌ Error en descarga:", e.message);
+        console.error("❌ Error en descarga de pista:", e.message);
         return false; 
     }
-}         
+}  
 
 async function obtenerAhoraSuena() {
     try {
