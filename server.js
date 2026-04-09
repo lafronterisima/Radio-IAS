@@ -105,10 +105,9 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     
-    // 1. Nueva carpeta: newsong
-    // 2. Nombre de archivo fijo para que siempre REEMPLACE al anterior
-    const nombreArchivo = "pedido_actual.mp3";
-    const rutaDestino = `newsong/${nombreArchivo}`;
+    // 1. Nombre estático y carpeta combinados
+    // Esto es lo que AzuraCast v0.23.4 entiende como "Ruta de destino"
+    const nombreConCarpeta = "newsong/pedido_actual.mp3";
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
@@ -121,15 +120,17 @@ async function descargarYSubirAzura(track) {
                 try {
                     const form = new FormData();
                     
-                    // IMPORTANTE: El campo 'path' con la ruta completa (carpeta/archivo)
-                    // es lo que fuerza a AzuraCast a no dejarlo en la raíz.
-                    form.append('path', rutaDestino); 
-                    
+                    // TRUCO MAESTRO: Enviamos la ruta completa DENTRO del filename.
+                    // Esto evita que el servidor lo ignore y lo suelte en la raíz.
                     form.append('file', fs.createReadStream(tempFile), { 
-                        filename: nombreArchivo 
+                        filename: nombreConCarpeta,
+                        contentType: 'audio/mpeg'
                     });
 
-                    console.log(`📤 Subiendo y reemplazando en carpeta: newsong`);
+                    // También enviamos el path por si acaso, pero el filename manda
+                    form.append('path', 'newsong');
+
+                    console.log(`📤 Forzando subida a: ${nombreConCarpeta}`);
 
                     await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { 
@@ -138,7 +139,7 @@ async function descargarYSubirAzura(track) {
                         }
                     });
 
-                    console.log(`✅ ¡Éxito! Archivo disponible en newsong/${nombreArchivo}`);
+                    console.log(`✅ ¡Éxito! El archivo ahora debe estar en /newsong`);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
 
@@ -149,10 +150,7 @@ async function descargarYSubirAzura(track) {
                 }
             });
         });
-    } catch (e) { 
-        console.error("❌ Error de descarga:", e.message);
-        return false; 
-    }
+    } catch (e) { return false; }
 }
 
 async function obtenerAhoraSuena() {
