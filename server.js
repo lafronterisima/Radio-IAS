@@ -51,14 +51,16 @@ bot.on('message', async (msg) => {
         if (track) {
             const exito = await descargarYSubirAzura(track);
             if (exito) {
-                ultimoSaludo = { 
-                    nombre: msg.from.first_name || "un oyente", 
-                    texto: `pidió la canción "${track.info}"`, 
-                    fecha: new Date() 
-                };
-                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Salomé la presentará pronto.`);
-            } else {
-                bot.sendMessage(msg.chat.id, `❌ Error al procesar el archivo.`);
+               if (exito) {
+    ultimoSaludo = { 
+        nombre: msg.from.first_name || "un oyente", 
+        texto: `que pusieras "${track.info}"`, // Cambiamos el texto para que la IA lo lea natural
+        cancion: track.info, // Guardamos el nombre específico
+        fecha: new Date() 
+    };
+             bot.sendMessage(msg.chat.id, `✅ ¡Entendido! Ya pedí "${track.info}". Salomé la presentará en la próxima intervención.`);
+       }else {
+             bot.sendMessage(msg.chat.id, `❌ Error al procesar el archivo.`);
             }
         } else {
             bot.sendMessage(msg.chat.id, `❌ No encontré esa canción.`);
@@ -105,23 +107,26 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 // Agrega esta función para solicitar la canción
 async function solicitarCancion(pathArchivo) {
     try {
-        // 1. Buscamos el archivo en la estación para obtener su ID único
+        // Esperamos 1 segundo para que AzuraCast procese el archivo subido
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
         const resList = await axios.get(`${AZURA_BASE}/files`, {
             headers: { "X-API-Key": KEYS.AZURA }
         });
 
-        // Buscamos el archivo que coincida con el nombre que acabamos de subir
+        // Filtramos directamente por el path exacto
         const archivo = resList.data.find(f => f.path === pathArchivo);
 
         if (archivo && archivo.unique_id) {
-            // 2. Enviamos la solicitud de reproducción (Request)
             await axios.post(`${AZURA_BASE}/request/${archivo.unique_id}`, {}, {
                 headers: { "X-API-Key": KEYS.AZURA }
             });
             return true;
+        } else {
+            console.log("⚠️ Archivo subido pero no se encontró el unique_id aún.");
         }
     } catch (e) {
-        console.error("Error al solicitar canción:", e.message);
+        console.error("❌ Error en la solicitud:", e.response?.data || e.message);
     }
     return false;
 }
