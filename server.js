@@ -104,17 +104,14 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
         
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    
+    // 1. Nombre estático para que REEMPLACE al anterior
     const nombreArchivo = "pedido_actual.mp3";
-    const carpeta = "Musica_Nueva";
+    // 2. Ruta completa: Carpeta + Nombre
+    const rutaDestino = `Musica_Nueva/${nombreArchivo}`;
 
     try {
-        console.log(`📥 Descargando: ${track.info}`);
-        const response = await axios({ 
-            url: track.url, 
-            method: 'GET', 
-            responseType: 'stream' 
-        });
-
+        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         response.data.pipe(writer);
 
@@ -123,44 +120,33 @@ async function descargarYSubirAzura(track) {
                 try {
                     const form = new FormData();
                     
-                    /**
-                     * CRÍTICO PARA v0.23.4:
-                     * 1. El campo 'path' debe ser la ruta relativa de la CARPETA.
-                     * 2. El campo 'file' debe incluir el nombre del archivo final.
-                     */
-                    form.append('path', carpeta); 
+                    // IMPORTANTE: En v0.23.4 el campo 'path' debe llevar la ruta RELATIVA completa
+                    // Esto le indica a la API que debe crear/moverse a esa carpeta
+                    form.append('path', rutaDestino); 
+                    
                     form.append('file', fs.createReadStream(tempFile), { 
-                        filename: nombreArchivo,
-                        contentType: 'audio/mpeg'
+                        filename: nombreArchivo 
                     });
-
-                    console.log(`📤 Subiendo a /${carpeta}/${nombreArchivo}...`);
 
                     await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { 
                             ...form.getHeaders(), 
                             "X-API-Key": KEYS.AZURA 
-                        },
-                        // Evita el timeout en PHP 8.5
-                        timeout: 120000 
+                        }
                     });
 
-                    console.log(`✅ ¡Éxito! Archivo reemplazado correctamente.`);
+                    console.log(`✅ Archivo reemplazado en Carpeta: ${rutaDestino}`);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
 
-                } catch (err) {
-                    // En esta versión, AzuraCast devuelve el error detallado en err.response.data
-                    console.error("❌ Error de AzuraCast:", err.response?.data?.message || err.message);
+                } catch (err) { 
+                    console.error("❌ Error API:", err.response?.data || err.message);
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                    resolve(false);
+                    resolve(false); 
                 }
             });
         });
-    } catch (e) {
-        console.error("❌ Error de descarga:", e.message);
-        return false;
-    }
+    } catch (e) { return false; }
 }
 
 async function obtenerAhoraSuena() {
