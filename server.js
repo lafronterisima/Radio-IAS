@@ -103,48 +103,60 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 }
         
 async function descargarYSubirAzura(track) {
-    // 1. Nombre estático para que siempre REEMPLACE al anterior
+    const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    
+    // 1. Nombre estático para que REEMPLACE al anterior siempre
     const nombreArchivo = "pedido_actual.mp3";
-    const rutaCompleta = `Musica_Nueva/${nombreArchivo}`;
+    const carpeta = "Musica_Nueva";
+    
+    // 2. Pasamos el path por la URL. Esto es infalible en AzuraCast 
+    // para que no lo mande a la raíz.
+    const urlFinal = `${AZURA_API_UPLOAD}?path=${encodeURIComponent(carpeta + '/' + nombreArchivo)}`;
 
     try {
         console.log(`📥 Descargando: ${track.info}`);
+        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
+        const writer = fs.createWriteStream(tempFile);
         
-        // 2. Descargamos la canción como Buffer (binario)
-        const response = await axios({ 
-            url: track.url, 
-            method: 'GET', 
-            responseType: 'arraybuffer' 
+        return new Promise((resolve) => {
+            response.data.pipe(writer);
+            
+            writer.on('finish', async () => {
+                try {
+                    const form = new FormData();
+                    
+                    // IMPORTANTE: El campo debe llamarse 'file'
+                    form.append('file', fs.createReadStream(tempFile), { 
+                        filename: nombreArchivo 
+                    });
+
+                    console.log(`📤 Subiendo y reemplazando en: ${carpeta}/${nombreArchivo}`);
+
+                    await axios.post(urlFinal, form, { 
+                        headers: { 
+                            ...form.getHeaders(), 
+                            "X-API-Key": KEYS.AZURA 
+                        },
+                        // Evita errores de timeout si la canción es pesada
+                        timeout: 60000 
+                    });
+
+                    console.log(`✅ ¡Éxito! Archivo en la carpeta Musica_Nueva.`);
+
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(true);
+
+                } catch (err) { 
+                    // Esto nos dirá el error exacto en la consola si vuelve a fallar
+                    console.error("❌ Error API Azura:", err.response?.data || err.message);
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(false); 
+                }
+            });
         });
-
-        // 3. Convertimos el Buffer a Base64
-        const archivoBase64 = Buffer.from(response.data, 'binary').toString('base64');
-
-        // 4. Creamos el objeto exactamente como pide tu documentación
-        const payload = {
-            path: rutaCompleta, // Aquí va: carpeta/nombre.mp3
-            file: archivoBase64  // El contenido en base64
-        };
-
-        console.log(`📤 Subiendo a: ${rutaCompleta} (Modo reemplazo)...`);
-
-        // 5. Enviamos como JSON (No FormData)
-        await axios.post(AZURA_API_UPLOAD, payload, {
-            headers: {
-                "X-API-Key": KEYS.AZURA,
-                "Content-Type": "application/json"
-            },
-            // Importante aumentar límites para archivos grandes
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
-        });
-
-        console.log(`✅ ¡Logrado! Archivo reemplazado en Musica_Nueva/${nombreArchivo}`);
-        return true;
-
-    } catch (e) {
-        console.error("❌ Error en subida técnica:", e.response?.data || e.message);
-        return false;
+    } catch (e) { 
+        console.error("❌ Error Descarga:", e.message);
+        return false; 
     }
 }
 
