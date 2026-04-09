@@ -122,7 +122,91 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 }
   
         
+async function descargarYSubirAzura(track) {
+    const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    const nombreArchivo = "pedido_actual.mp3";
+    const carpetaDestino = "Pedidos_IA";
 
+    try {
+        console.log(`📥 Descargando: ${track.info}`);
+
+        const response = await axios({
+            url: track.url,
+            method: 'GET',
+            responseType: 'stream'
+        });
+
+        const writer = fs.createWriteStream(tempFile);
+        response.data.pipe(writer);
+
+        return new Promise((resolve) => {
+            writer.on('finish', async () => {
+                try {
+                    const form = new FormData();
+
+                    form.append('file', fs.createReadStream(tempFile), {
+                        filename: nombreArchivo
+                    });
+
+                    console.log(`📤 Subiendo a raíz...`);
+
+                    // 1. SUBIR NORMAL
+                    await axios.post(AZURA_API_UPLOAD, form, {
+                        headers: {
+                            ...form.getHeaders(),
+                            "X-API-Key": KEYS.AZURA
+                        }
+                    });
+
+                    console.log(`📂 Moviendo a carpeta ${carpetaDestino}...`);
+
+                    // 2. MOVER ARCHIVO
+                    await axios.put(
+                        `${AZURA_API}/station/${STATION_ID}/file`,
+                        {
+                            path: nombreArchivo,
+                            new_path: `${carpetaDestino}/${nombreArchivo}`
+                        },
+                        {
+                            headers: {
+                                "X-API-Key": KEYS.AZURA
+                            }
+                        }
+                    );
+
+                    console.log(`✅ Archivo movido correctamente`);
+
+                    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+
+                    resolve(true);
+
+                } catch (err) {
+                    console.error("❌ Error Azura:", err.response?.data || err.message);
+                    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(false);
+                }
+            });
+        });
+
+    } catch (e) {
+        console.error("❌ Error descarga:", e.message);
+        return false;
+    }
+}
+
+
+async function solicitarCancionEnAzura(mediaId) {
+    // El mediaId es el ID que AzuraCast le asigna a 'pedido_actual.mp3'
+    // Puedes encontrarlo en la lista de archivos de música.
+    try {
+        await axios.post(`${BASE_URL_API}/station/24/request/${mediaId}`, {}, {
+            headers: { "X-API-Key": KEYS.AZURA }
+        });
+        console.log("🚀 Canción enviada a la cola de reproducción.");
+    } catch (error) {
+        console.error("No se pudo forzar el pedido:", error.message);
+    }
+}
 
 
 
