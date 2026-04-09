@@ -104,20 +104,41 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    // Definimos el nombre que tendrá el archivo en el servidor
+    const nombreArchivo = `pedido_${Date.now()}.mp3`;
+    // Definimos la carpeta destino (asegúrate de que exista en AzuraCast)
+    const carpetaDestino = "Musica_Nueva"; 
+
     try {
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
+        
         return new Promise((resolve) => {
             response.data.pipe(writer);
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
-                    form.append('file', fs.createReadStream(tempFile), { filename: "estreno_jamendo.mp3" });
-                    form.append('path', `Musica_Nueva/estreno_jamendo.mp3`);
-                    await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA } });
+                    
+                    // 1. Enviamos el archivo con su nombre específico
+                    form.append('file', fs.createReadStream(tempFile), { filename: nombreArchivo });
+                    
+                    // 2. Enviamos SOLO el nombre de la carpeta en el campo path
+                    form.append('path', carpetaDestino);
+
+                    await axios.post(AZURA_API_UPLOAD, form, { 
+                        headers: { 
+                            ...form.getHeaders(), 
+                            "X-API-Key": KEYS.AZURA 
+                        } 
+                    });
+
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
-                } catch (err) { resolve(false); }
+                } catch (err) { 
+                    console.error("Error al subir:", err.response?.data || err.message);
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(false); 
+                }
             });
         });
     } catch (e) { return false; }
