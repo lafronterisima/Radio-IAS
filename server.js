@@ -108,41 +108,45 @@ async function descargarYSubirAzura(track) {
     const caminoDestino = `Musica_Nueva/${nombreArchivo}`;
 
     try {
-        console.log(`📥 Descargando: ${track.info}`);
+        console.log(`📥 Descargando de Jamendo: ${track.info}`);
         
-        // 1. Descargamos la canción como un Buffer (datos binarios)
+        // 1. Descargamos la canción
         const response = await axios({ 
             url: track.url, 
             method: 'GET', 
-            responseType: 'arraybuffer' 
+            responseType: 'arraybuffer',
+            timeout: 15000 // 15 segundos de límite para descargar
         });
 
-        // 2. Convertimos el Buffer a una cadena Base64
+        // 2. Convertimos a Base64
         const archivoBase64 = Buffer.from(response.data, 'binary').toString('base64');
 
-        // 3. Preparamos el cuerpo de la petición según tu esquema
-        const datosCarga = {
-            camino: caminoDestino,
-            archivo: archivoBase64
-        };
+        // 3. Enviamos a AzuraCast con los nombres de campos exactos
+        console.log(`📤 Subiendo a AzuraCast en: ${caminoDestino}`);
 
-        console.log(`📤 Subiendo a: ${caminoDestino}...`);
-
-        // 4. Enviamos el JSON a la API
-        await axios.post(AZURA_API_UPLOAD, datosCarga, {
+        await axios.post(AZURA_API_UPLOAD, {
+            path: caminoDestino,    // Prueba con 'path' si 'camino' falla
+            file: archivoBase64     // Prueba con 'file' si 'archivo' falla
+        }, {
             headers: {
                 "X-API-Key": KEYS.AZURA,
                 "Content-Type": "application/json"
             },
+            // Aumentamos los límites de tamaño para no truncar el envío
             maxContentLength: Infinity,
             maxBodyLength: Infinity
         });
 
-        console.log(`✅ ¡Logrado! Canción en la carpeta Musica_Nueva.`);
+        console.log(`✅ ¡Éxito! Archivo guardado en la carpeta.`);
         return true;
 
     } catch (e) {
-        console.error("❌ Error en la subida Base64:", e.response?.data || e.message);
+        // ESTO ES LO MÁS IMPORTANTE: Ver el error real en la consola
+        if (e.response) {
+            console.error("❌ Error de la API de Azura:", e.response.status, e.response.data);
+        } else {
+            console.error("❌ Error de conexión:", e.message);
+        }
         return false;
     }
 }
