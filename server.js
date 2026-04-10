@@ -3,7 +3,6 @@ const express = require("express");
 const { google } = require('googleapis');
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
-const path = require('path');
 const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
