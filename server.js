@@ -311,25 +311,29 @@ app.post('/login', (req, res) => {
 app.get("/health", (req, res) => res.sendStatus(200));
 
 
-
-// ======= 5. SERVER E INICIO (VERSION FINAL SIN ERRORES) =======
+// ======= 5. SERVER E INICIO (VERSION ESTABLE) =======
 const PORT = process.env.PORT || 8000;
 
-app.get('/', (req, res) => res.status(200).send('📻 Salomé Online'));
+app.get('/', (req, res) => res.status(200).send('📻 La Fronterísima Pro Online'));
 
-// Función de arranque seguro
 async function iniciarSistema() {
     try {
-        if (!KEYS.TELEGRAM_TOKEN) {
-            console.error("❌ ERROR: Falta TELEGRAM_TOKEN en las variables de entorno.");
-            return;
-        }
+        if (!KEYS.TELEGRAM_TOKEN) return;
+
+        // 1. Matamos cualquier conexión previa de forma agresiva
+        await bot.stopPolling(); 
         await bot.deleteWebHook({ drop_pending_updates: true });
-        bot.startPolling();
-        console.log("✅ Telegram Polling activo.");
+
+        // 2. Esperamos 5 segundos antes de conectar
+        console.log("⏳ Esperando estabilización de red...");
+        setTimeout(() => {
+            bot.startPolling();
+            console.log("✅ Salomé escuchando en Telegram sin interferencias.");
+        }, 5000);
+
     } catch (e) {
-        console.error("⚠️ Error no crítico en Telegram:", e.message);
-        bot.startPolling();
+        console.error("⚠️ Reintentando conexión...");
+        setTimeout(() => bot.startPolling(), 10000);
     }
 }
 
@@ -337,15 +341,13 @@ async function iniciarSistema() {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
     
-    // 1. Iniciar Bot
-    setTimeout(iniciarSistema, 2000);
+    // Iniciar el bot con el nuevo método de limpieza
+    iniciarSistema();
 
-    // 2. Reporte de clima/noticias cada 15 minutos
-    setTimeout(autoReporte, 5000);
+    // Reportes automáticos
+    setTimeout(autoReporte, 10000); // 10 seg después del inicio
     setInterval(autoReporte, 15 * 60 * 1000);
 
-    // 3. Contenido variado (Redactor_ia) cada 50 minutos
-    setTimeout(autoRedactorIA, 20000); 
+    setTimeout(autoRedactorIA, 30000); // 30 seg después del inicio
     setInterval(autoRedactorIA, 50 * 60 * 1000);
-}); 
-// <--- ESTE ES EL ÚNICO CIERRE QUE DEBE HABER AQUÍ
+});
