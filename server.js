@@ -40,7 +40,7 @@ const groq = new Groq({ apiKey: KEYS.GROQ });
 async function generarGuionValeria(oyente, mensaje, esCancion = false) {
     const contexto = esCancion ? `pidió la canción: ${mensaje}` : `envió este saludo: ${mensaje}`;
     
-    const prompt = `Eres Valeria, locutora de la emisora "La Ochentera". Eres elegante, culta y nostálgica. 
+    const prompt = `Eres Valeria, locutora de la emisora "La Fronterisima". Eres elegante, culta y nostálgica. 
     Un oyente llamado ${oyente} ${contexto}. 
     Escribe un guion breve para radio (máximo 35 palabras) presentándolo. 
     Usa un tono sofisticado. No uses emojis ni hashtags.`;
