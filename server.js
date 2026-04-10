@@ -312,7 +312,7 @@ app.get("/health", (req, res) => res.sendStatus(200));
 
 
 
-// ======= 5. SERVER E INICIO (VERSION REPARADA) =======
+// ======= 5. SERVER E INICIO (VERSION FINAL SIN ERRORES) =======
 const PORT = process.env.PORT || 8000;
 
 app.get('/', (req, res) => res.status(200).send('📻 Salomé Online'));
@@ -329,25 +329,23 @@ async function iniciarSistema() {
         console.log("✅ Telegram Polling activo.");
     } catch (e) {
         console.error("⚠️ Error no crítico en Telegram:", e.message);
-        // Intentamos arrancar de todos modos
         bot.startPolling();
     }
 }
 
 // Arrancamos el servidor
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Servidor en puerto ${PORT}`);
-    // Ejecutamos el inicio del bot con un pequeño retraso para asegurar estabilidad
+    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
+    
+    // 1. Iniciar Bot
     setTimeout(iniciarSistema, 2000);
-});
 
-    
-    
-    // Reporte de clima/noticias cada 15 minutos
+    // 2. Reporte de clima/noticias cada 15 minutos
     setTimeout(autoReporte, 5000);
     setInterval(autoReporte, 15 * 60 * 1000);
 
-    // Contenido variado (Redactor_ia) cada 50 minutos
+    // 3. Contenido variado (Redactor_ia) cada 50 minutos
     setTimeout(autoRedactorIA, 20000); 
     setInterval(autoRedactorIA, 50 * 60 * 1000);
-});
+}); 
+// <--- ESTE ES EL ÚNICO CIERRE QUE DEBE HABER AQUÍ
