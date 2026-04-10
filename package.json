@@ -21,7 +21,7 @@
     "@google/generative-ai": "^0.1.0",
     "microsoft-cognitiveservices-speech-sdk": "^1.33.0",
     "rss-parser": "^3.13.0",
-    "youtube-sr": "^4.3.11",
+    "googleapis": "^122.0.0",
     "node-telegram-bot-api": "^0.64.0"
   },
   "keywords": [
