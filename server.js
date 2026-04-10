@@ -126,7 +126,7 @@ bot.on('message', async (msg) => {
     const query = msg.text.trim();
     const oyente = msg.from.first_name || "un oyente";
 
-    bot.sendMessage(msg.chat.id, "🎙️ **Salomé:** _\"Buscando en los archivos de La Ochentera...\"_");
+    bot.sendMessage(msg.chat.id, "🎙️ **Salomé:** _\"Buscando en los archivos de La Fronterisima...\"_");
 
     try {
         // 1. YouTube
