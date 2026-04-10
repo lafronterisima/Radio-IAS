@@ -36,7 +36,7 @@ const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 const groq = new Groq({ apiKey: KEYS.GROQ });
 
-// ======= 1. IA: EL PENSAMIENTO DE VALERIA (GROQ) =======
+// ======= 1. IA: EL PENSAMIENTO DE SALOMÉ (GROQ) =======
 async function generarGuionValeria(oyente, mensaje, esCancion = false) {
     const contexto = esCancion ? `pidió la canción: ${mensaje}` : `envió este saludo: ${mensaje}`;
     
@@ -72,7 +72,7 @@ async function generarVozSalome(texto) {
     });
 }
 
-// ======= 3. MÚSICA: BÚSQUEDA EN YOUTUBE =======
+// ======= 3. MÚSICA: BÚSQUEDA EN LA RED =======
 async function buscarYouTube(query) {
     const video = await YouTube.searchOne(query);
     return video ? { url: video.url, title: video.title, id: video.id } : null;
@@ -85,7 +85,7 @@ bot.on('message', async (msg) => {
     const query = msg.text.trim();
     const oyente = msg.from.first_name || "un oyente";
 
-    bot.sendMessage(msg.chat.id, "🎙️ Valeria está preparando tu momento al aire...");
+    bot.sendMessage(msg.chat.id, "🎙️ Salomé está preparando tu momento al aire...");
 
     try {
         // ¿Es una canción o solo un saludo?
