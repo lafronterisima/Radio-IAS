@@ -1,23 +1,17 @@
 require('dotenv').config();
-const express = require("express");
-const axios = require("axios");
-const sdk = require("microsoft-cognitiveservices-speech-sdk");
-const fs = require("fs");
-const FormData = require("form-data");
-const { exec } = require("child_process");
-const path = require("path");
 const { google } = require('googleapis');
 const TelegramBot = require('node-telegram-bot-api');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 const { pipeline } = require('stream/promises');
-const YouTube = require('youtube-sr').default;
 const ytdl = require('@distube/ytdl-core');
+const sdk = require('microsoft-cognitiveservices-speech-sdk');
 const { Groq } = require('groq-sdk');
+const FormData = require('form-data');
+const express = require("express");
 
-const app = express();
-app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
-
-// ======= 1. CONFIGURACIÓN =======
+// ======= 1. CONFIGURACIÓN Y LLAVES (UNIFICADO) =======
 const safeTrim = (val) => val ? val.trim() : "";
 const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
 
@@ -34,39 +28,15 @@ const KEYS = {
     JAMENDO_ID: safeTrim(process.env.JAMENDO_CLIENT_ID) || "c230e1f4"
 };
 
-const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
-const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
+// ======= 2. INICIALIZACIÓN DE CLIENTES =======
+const app = express();
 const groq = new Groq({ apiKey: KEYS.GROQ });
 const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
-
-
-const { google } = require('googleapis');
-const TelegramBot = require('node-telegram-bot-api');
-const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const { pipeline } = require('stream/promises');
-const ytdl = require('@distube/ytdl-core');
-const sdk = require('microsoft-cognitiveservices-speech-sdk');
-const { Groq } = require('groq-sdk');
-const FormData = require('form-data');
-
-// ======= CONFIGURACIÓN DE LLAVES (Usa Variables de Entorno en Koyeb) =======
-const KEYS = {
-    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
-    AZURA: process.env.AZURA_API_KEY,
-    GROQ: process.env.GROQ_API_KEY,
-    AZURE_KEY: process.env.AZURE_KEY,
-    AZURE_REGION: process.env.AZURE_REGION || 'eastus',
-    YOUTUBE: process.env.YOUTUBE_API_KEY 
-};
-
-const BASE_URL_API = "https://tu-url-azuracast.com/api"; // Tu URL de AzuraCast
-const STATION_ID = "24"; 
-
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
-const groq = new Groq({ apiKey: KEYS.GROQ });
-const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
+
+const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
+const AZURA_API_FILES = `${AZURA_BASE}/files`;
+
 
 // ======= 1. BÚSQUEDA PROFESIONAL YOUTUBE =======
 async function buscarMusicaOficial(query) {
