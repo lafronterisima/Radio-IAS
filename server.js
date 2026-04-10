@@ -16,6 +16,9 @@ const express = require("express");
 const safeTrim = (val) => val ? val.trim() : "";
 const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
 
+// Al principio del archivo
+let ultimoSaludo = "Bienvenidos a La Fronterísima";
+
 const KEYS = {
     GEMINI: safeTrim(process.env.GOOGLE_API_KEY),
     GROQ: safeTrim(process.env.GROQ_API_KEY),
@@ -44,6 +47,27 @@ bot.deleteWebHook().then(() => {
     console.log("🎙️ Sesiones previas de Telegram limpiadas.");
 });
 
+async function buscarMusicaOficial(query) {
+    try {
+        const res = await youtube.search.list({
+            part: 'snippet',
+            q: `${query} official audio`,
+            maxResults: 1,
+            type: 'video',
+            videoCategoryId: '10'
+        });
+        if (!res.data.items || res.data.items.length === 0) return null;
+        const item = res.data.items[0];
+        return { 
+            id: item.id.videoId, 
+            title: item.snippet.title, 
+            url: `https://www.youtube.com/watch?v=${item.id.videoId}` 
+        };
+    } catch (e) { 
+        console.error("Error en búsqueda YT:", e.message);
+        return null; 
+    }
+}
 
 // ======= 1. IA: EL PENSAMIENTO DE SALOMÉ (GROQ) =======
 async function obtenerGuionSalome(oyente, mensaje, esMusica) {
@@ -158,10 +182,7 @@ bot.on('message', async (msg) => {
 });
 
 
-      
-
-
-
+    
 async function obtenerAhoraSuena() {
     try {
         const res = await axios.get(`${AZURA_BASE}/nowplaying`, { timeout: 4000 });
@@ -310,7 +331,7 @@ app.post('/login', (req, res) => {
 app.get("/health", (req, res) => res.sendStatus(200));
 
 
-// ======= 5. SERVER E INICIO (VERSION ESTABLE) =======
+// ======= 5. SERVER E INICIO (ORDEN FINAL) =======
 const PORT = process.env.PORT || 8000;
 
 app.get('/', (req, res) => res.status(200).send('📻 La Fronterísima Pro Online'));
@@ -318,35 +339,35 @@ app.get('/', (req, res) => res.status(200).send('📻 La Fronterísima Pro Onlin
 async function iniciarSistema() {
     try {
         if (!KEYS.TELEGRAM_TOKEN) return;
-
-        // 1. Matamos cualquier conexión previa de forma agresiva
-        await bot.stopPolling(); 
         await bot.deleteWebHook({ drop_pending_updates: true });
-
-        // 2. Esperamos 5 segundos antes de conectar
         console.log("⏳ Esperando estabilización de red...");
         setTimeout(() => {
             bot.startPolling();
             console.log("✅ Salomé escuchando en Telegram sin interferencias.");
         }, 5000);
-
     } catch (e) {
-        console.error("⚠️ Reintentando conexión...");
-        setTimeout(() => bot.startPolling(), 10000);
+        console.error("⚠️ Error iniciando Bot:", e.message);
     }
 }
 
-// Arrancamos el servidor
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
+    console.log(`🚀 Servidor en puerto ${PORT}`);
     
-    // Iniciar el bot con el nuevo método de limpieza
     iniciarSistema();
 
-    // Reportes automáticos
-    setTimeout(autoReporte, 10000); // 10 seg después del inicio
-    setInterval(autoReporte, 15 * 60 * 1000);
+    // Iniciar reportes automáticos
+    // Asegúrate de que las funciones autoReporte y autoRedactorIA estén escritas arriba
+    setTimeout(() => {
+        if (typeof autoReporte === "function") {
+            autoReporte();
+            setInterval(autoReporte, 15 * 60 * 1000);
+        }
+    }, 10000);
 
-    setTimeout(autoRedactorIA, 30000); // 30 seg después del inicio
-    setInterval(autoRedactorIA, 50 * 60 * 1000);
+    setTimeout(() => {
+        if (typeof autoRedactorIA === "function") {
+            autoRedactorIA();
+            setInterval(autoRedactorIA, 50 * 60 * 1000);
+        }
+    }, 30000);
 });
