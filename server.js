@@ -312,35 +312,34 @@ app.get("/health", (req, res) => res.sendStatus(200));
 
 
 
-// ======= 8. INICIO DEL SERVIDOR =======
+// ======= 5. SERVER E INICIO (VERSION REPARADA) =======
 const PORT = process.env.PORT || 8000;
 
-// Agregamos un endpoint de salud (esto evita que Koyeb reinicie el app)
-app.get('/', (req, res) => {
-    res.status(200).send('📻 La Fronterísima Pro está al aire.');
-});
+app.get('/', (req, res) => res.status(200).send('📻 Salomé Online'));
 
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
-    
-    // IMPORTANTE: Llamamos a la función que limpia Telegram y arranca el bot
-    // después de que el servidor web ya está funcionando.
-    iniciarSistema(); 
-});
-
-// Función de arranque limpio para evitar el Error 409
+// Función de arranque seguro
 async function iniciarSistema() {
     try {
-        console.log("🧹 Limpiando sesiones previas de Telegram...");
-        // Esto "mata" cualquier conexión anterior y borra mensajes acumulados
-        await bot.deleteWebHook({ drop_pending_updates: true }); 
-        
+        if (!KEYS.TELEGRAM_TOKEN) {
+            console.error("❌ ERROR: Falta TELEGRAM_TOKEN en las variables de entorno.");
+            return;
+        }
+        await bot.deleteWebHook({ drop_pending_updates: true });
         bot.startPolling();
-        console.log("✅ Salomé escuchando en Telegram sin conflictos.");
+        console.log("✅ Telegram Polling activo.");
     } catch (e) {
-        console.error("❌ Error al iniciar Telegram:", e.message);
+        console.error("⚠️ Error no crítico en Telegram:", e.message);
+        // Intentamos arrancar de todos modos
+        bot.startPolling();
     }
 }
+
+// Arrancamos el servidor
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Servidor en puerto ${PORT}`);
+    // Ejecutamos el inicio del bot con un pequeño retraso para asegurar estabilidad
+    setTimeout(iniciarSistema, 2000);
+});
 
     
     
