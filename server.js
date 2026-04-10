@@ -97,27 +97,26 @@ async function generarVozSalome(texto) {
     
     const speechConfig = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
+    
+    // CORRECCIÓN CLAVE: Se asigna como propiedad, NO como función
     speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitrateMonoMp3;
+
     const audioConfig = sdk.AudioConfig.fromAudioFileOutput(filePath);
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
 
     return new Promise((resolve, reject) => {
-        synthesizer.speakTextAsync(
-            texto,
-            result => {
+        synthesizer.speakTextAsync(texto, result => {
+            if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+                synthesizer.close(); // Cerramos después de completar
+                setTimeout(() => resolve(filePath), 500); // Pequeño margen para liberar el archivo
+            } else {
                 synthesizer.close();
-                if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-                    // Esperamos 300ms para asegurar que el archivo se libere en disco
-                    setTimeout(() => resolve(filePath), 300);
-                } else {
-                    reject(new Error(`Síntesis fallida: ${result.errorDetails}`));
-                }
-            },
-            err => {
-                synthesizer.close();
-                reject(err);
+                reject(new Error(`Azure falló: ${result.errorDetails}`));
             }
-        );
+        }, err => {
+            synthesizer.close();
+            reject(err);
+        });
     });
 }
 
