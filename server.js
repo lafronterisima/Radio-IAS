@@ -37,7 +37,7 @@ const app = express();
 const groq = new Groq({ apiKey: KEYS.GROQ });
 const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
 // Configuración de Bot con autoStart desactivado para limpieza previa
-const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
+const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: false });
 
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_FILES = `${AZURA_BASE}/files`;
@@ -338,14 +338,26 @@ app.get('/', (req, res) => res.status(200).send('📻 La Fronterísima Pro Onlin
 async function iniciarSistema() {
     try {
         if (!KEYS.TELEGRAM_TOKEN) return;
+
+        // 1. Limpieza profunda
+        console.log("🎙️ Limpiando rastro de versiones anteriores...");
         await bot.deleteWebHook({ drop_pending_updates: true });
+        await bot.stopPolling();
+
+        // 2. Tiempo de gracia para que Telegram cierre la sesión vieja
         console.log("⏳ Esperando estabilización de red...");
-        setTimeout(() => {
-            bot.startPolling();
-            console.log("✅ Salomé escuchando en Telegram sin interferencias.");
-        }, 5000);
+        
+        setTimeout(async () => {
+            try {
+                await bot.startPolling();
+                console.log("✅ Salomé escuchando en Telegram sin interferencias.");
+            } catch (pollError) {
+                console.error("⚠️ Error al iniciar polling, reintentando...");
+            }
+        }, 7000); // 7 segundos es el tiempo ideal para evitar el 409 en Koyeb
+
     } catch (e) {
-        console.error("⚠️ Error iniciando Bot:", e.message);
+        console.error("❌ Error iniciando Bot:", e.message);
     }
 }
 
