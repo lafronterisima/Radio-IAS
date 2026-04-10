@@ -4,12 +4,16 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require("child_process");
 const { pipeline } = require('stream/promises');
 const ytdl = require('@distube/ytdl-core');
 const sdk = require('microsoft-cognitiveservices-speech-sdk');
 const { Groq } = require('groq-sdk');
 const FormData = require('form-data');
 const express = require("express");
+
+// ======= 1. VARIABLES GLOBALES Y CONFIGURACIÓN =======
+let ultimoSaludo = ""; // Corregido: Definición global
 
 // ======= 1. CONFIGURACIÓN Y LLAVES (UNIFICADO) =======
 const safeTrim = (val) => val ? val.trim() : "";
@@ -37,8 +41,15 @@ const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_FILES = `${AZURA_BASE}/files`;
 
+// Limpieza de conflicto de Telegram (Error 409)
+bot.deleteWebHook().then(() => {
+    console.log("🎙️ Sesiones previas de Telegram limpiadas.");
+});
+
 
 // ======= 1. BÚSQUEDA PROFESIONAL YOUTUBE =======
+
+// ======= 3. FUNCIONES DE APOYO =======
 
 async function buscarMusicaOficial(query) {
     try {
@@ -91,7 +102,6 @@ async function generarVozSalome(texto) {
     return new Promise((resolve, reject) => {
         synthesizer.speakTextAsync(texto, result => {
             synthesizer.close();
-            // Esperar un momento para que el archivo se libere en disco
             setTimeout(() => { resolve(filePath); }, 250);
         }, err => {
             synthesizer.close();
@@ -118,6 +128,16 @@ async function subirAzura(localPath, carpeta, nombreFinal) {
     }
 }
 
+async function refrescarAzura() {
+    try {
+        await axios.post(`${AZURA_BASE}/run/re-index`, {}, {
+            headers: { "X-API-Key": KEYS.AZURA }
+        });
+    } catch (e) {
+        console.error("No se pudo refrescar el índice de Azura.");
+    }
+}
+
 // ======= 4. LÓGICA DE TELEGRAM =======
 
 bot.on('message', async (msg) => {
@@ -125,40 +145,37 @@ bot.on('message', async (msg) => {
 
     const query = msg.text.trim();
     const oyente = msg.from.first_name || "un oyente";
+    ultimoSaludo = query; // Guardamos el último mensaje recibido
 
     bot.sendMessage(msg.chat.id, "🎙️ **Salomé:** _\"Buscando en los archivos de La Fronterisima...\"_");
 
     try {
-        // 1. YouTube
         const video = await buscarMusicaOficial(query);
         const esCancion = video && video.title.toLowerCase().includes(query.split(' ')[0].toLowerCase());
-
-        // 2. IA Guion y Voz
         const guion = await obtenerGuionSalome(oyente, esCancion ? video.title : query, esCancion);
         const rutaVoz = await generarVozSalome(guion);
 
         if (esCancion) {
             const rutaMusica = path.join(__dirname, `mus_${video.id}.mp3`);
-            
-            // 3. Descarga
             const stream = await ytdl(video.url, { filter: 'audioonly', quality: 'highestaudio' });
             await pipeline(stream, fs.createWriteStream(rutaMusica));
 
-            // 4. Subida
             await subirAzura(rutaVoz, "Locuciones", `intro_${Date.now()}.mp3`);
             await subirAzura(rutaMusica, "Musica_Nueva", `pedido_${video.id}.mp3`);
+            await refrescarAzura();
             
             bot.sendMessage(msg.chat.id, `✅ **¡Encontrada!**\n🎶 ${video.title}\n🎙️ _"${guion}"_`);
         } else {
-            // Solo saludo
             await subirAzura(rutaVoz, "Saludos", `saludo_${Date.now()}.mp3`);
+            await refrescarAzura();
             bot.sendMessage(msg.chat.id, "✅ Tu mensaje ya está en la cabina.");
         }
     } catch (error) {
         console.error(error);
-        bot.sendMessage(msg.chat.id, "Hubo un problema técnico. Intenta de nuevo.");
+        bot.sendMessage(msg.chat.id, "Hubo un bache en la señal. Intenta de nuevo.");
     }
 });
+
 
 
 async function obtenerAhoraSuena() {
