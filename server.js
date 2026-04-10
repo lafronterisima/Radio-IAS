@@ -34,9 +34,7 @@ const app = express();
 const groq = new Groq({ apiKey: KEYS.GROQ });
 const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
 // Configuración de Bot con autoStart desactivado para limpieza previa
-const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { 
-    polling: { autoStart: false } 
-});
+const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_FILES = `${AZURA_BASE}/files`;
