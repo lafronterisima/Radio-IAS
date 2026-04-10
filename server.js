@@ -77,11 +77,11 @@ async function obtenerGuionSalome(oyente, mensaje, esMusica) {
         Escribe un guion para radio muy breve (máximo 25 palabras) para presentarlo al aire. 
         Sin emojis ni asteriscos. Usa un tono profesional y cálido.`;
 
-        const completion = await groq.chat.completions.create({
-            messages: [{ role: 'user', content: prompt }],
-            model: 'llama3-8b-8192',
-            temperature: 0.7,
-        });
+       const completion = await groq.chat.completions.create({
+    messages: [{ role: 'user', content: prompt }],
+    model: 'llama-3.1-8b-instant', 
+    temperature: 0.7,
+});
         
         return completion.choices[0].message.content.replace(/[*#_]/g, '').trim();
     } catch (error) {
@@ -97,8 +97,7 @@ async function generarVozSalome(texto) {
     
     const speechConfig = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
-    speechConfig.setSpeechSynthesisOutputFormat(sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitrateMonoMp3);
-
+    speechConfig.speechSynthesisOutputFormat = sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitrateMonoMp3;
     const audioConfig = sdk.AudioConfig.fromAudioFileOutput(filePath);
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
 
