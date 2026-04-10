@@ -25,7 +25,7 @@ const KEYS = {
     PASSWORD: safeTrim(process.env.APP_PASSWORD),
     TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN),
     YOUTUBE: safeTrim(process.env.YOUTUBE_API_KEY),
-    JAMENDO_ID: safeTrim(process.env.JAMENDO_CLIENT_ID) || "c230e1f4"
+  
 };
 
 // ======= 2. INICIALIZACIÓN DE CLIENTES =======
