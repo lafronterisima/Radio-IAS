@@ -36,35 +36,39 @@ const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 const groq = new Groq({ apiKey: KEYS.GROQ });
 
-// ======= 1. IA: EL PENSAMIENTO DE SALOMÉ (GROQ) =======
-async function generarGuionValeria(oyente, mensaje, esCancion = false) {
-    const contexto = esCancion ? `pidió la canción: ${mensaje}` : `envió este saludo: ${mensaje}`;
-    
-    const prompt = `Eres Salomé, locutora de la emisora "La Fronterisima". Eres elegante, culta y nostálgica. 
-    Un oyente llamado ${oyente} ${contexto}. 
-    Escribe un guion breve para radio (máximo 35 palabras) presentándolo. 
-    Usa un tono sofisticado. No uses emojis ni hashtags.`;
+// ======= 1. IA: EL PENSAMIENTO DE VALERIA (GROQ) =======
+async function obtenerGuionValeria(oyente, mensaje, esMusica) {
+    try {
+        const prompt = `Eres Salomé, locutora de la emisora "La Ochentera". Eres elegante, sofisticada y con un toque de nostalgia rumbera. 
+        Un oyente llamado ${oyente} ${esMusica ? 'acaba de pedir la canción: ' + mensaje : 'te envía este saludo: ' + mensaje}.
+        Escribe un guion para radio muy breve (máximo 30 palabras) para presentarlo al aire. 
+        Usa frases como "Clásicos que acarician el alma" o "En la sintonía de los recuerdos". No uses emojis.`;
 
-    const completion = await groq.chat.completions.create({
-        messages: [{ role: 'user', content: prompt }],
-        model: 'llama3-8b-8192',
-    });
-    return completion.choices[0].message.content;
+        const completion = await groq.chat.completions.create({
+            messages: [{ role: 'user', content: prompt }],
+            model: 'llama3-8b-8192',
+        });
+        return completion.choices[0].message.content;
+    } catch (error) {
+        return `Aquí tenemos un pedido especial de ${oyente}. Disfrútenlo.`;
+    }
 }
 
-// ======= 2. VOZ: EL TONO DE SALOMÉ (AZURE) =======
+// ======= 2. VOZ: LA LOCUCIÓN DE SALOMÉ (AZURE) =======
 async function generarVozSalome(texto) {
-    const audioPath = path.join(__dirname, `locucion_${Date.now()}.mp3`);
-    const speechConfig = sdk.SpeechConfig.fromSubscription(KEYS.AZURE_KEY, KEYS.AZURE_REGION);
-    speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural"; // Voz de Salomé
+    const fileName = `locucion_${Date.now()}.mp3`;
+    const filePath = path.join(__dirname, fileName);
     
-    const audioConfig = sdk.AudioConfig.fromAudioFileOutput(audioPath);
+    const speechConfig = sdk.SpeechConfig.fromSubscription(KEYS.AZURE_KEY, KEYS.AZURE_REGION);
+    speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural"; // Voz elegante colombiana
+    
+    const audioConfig = sdk.AudioConfig.fromAudioFileOutput(filePath);
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
 
     return new Promise((resolve, reject) => {
         synthesizer.speakTextAsync(texto, result => {
             synthesizer.close();
-            resolve(audioPath);
+            resolve(filePath);
         }, err => {
             synthesizer.close();
             reject(err);
@@ -72,67 +76,82 @@ async function generarVozSalome(texto) {
     });
 }
 
-// ======= 3. MÚSICA: BÚSQUEDA EN LA RED =======
-async function buscarYouTube(query) {
-    const video = await YouTube.searchOne(query);
-    return video ? { url: video.url, title: video.title, id: video.id } : null;
-}
-
-// ======= 4. LÓGICA PRINCIPAL DEL BOT =======
-bot.on('message', async (msg) => {
-    if (!msg.text || msg.text.startsWith('/')) return;
-
-    const query = msg.text.trim();
-    const oyente = msg.from.first_name || "un oyente";
-
-    bot.sendMessage(msg.chat.id, "🎙️ Salomé está preparando tu momento al aire...");
-
-    try {
-        // ¿Es una canción o solo un saludo?
-        const video = await buscarYouTube(query);
-        const guion = await generarGuionValeria(oyente, video ? video.title : query, !!video);
-        const rutaLocucion = await generarVozSalome(guion);
-
-        if (video) {
-            // Descargar audio de YouTube
-            const rutaMusica = path.join(__dirname, `track_${video.id}.mp3`);
-            const stream = await ytdl(video.url, { filter: 'audioonly', quality: 'highestaudio' });
-            await pipeline(stream, fs.createWriteStream(rutaMusica));
-
-            // Subir ambos a AzuraCast
-            await subirAzura(rutaLocucion, "Locuciones", `valeria_${Date.now()}.mp3`);
-            await subirAzura(rutaMusica, "Musica_Nueva", `pedido_${video.id}.mp3`);
-            
-            bot.sendMessage(msg.chat.id, `✅ ¡Listo! Salomé presentará "${video.title}" en un momento.`);
-        } else {
-            // Solo subir el saludo/locución
-            await subirAzura(rutaLocucion, "Saludos", `saludo_${Date.now()}.mp3`);
-            bot.sendMessage(msg.chat.id, "✅ Tu saludo ha sido enviado a la Fronterisima.");
-        }
-    } catch (error) {
-        console.error("Error en el proceso:", error);
-        bot.sendMessage(msg.chat.id, "Lo siento, la cabina está teniendo problemas técnicos.");
-    }
-});
-
-async function subirAzura(localPath, carpeta, nombreDestino) {
+// ======= 3. FUNCIÓN DE SUBIDA A AZURACAST =======
+async function subirAzura(localPath, carpeta, nombreFinal) {
     const form = new FormData();
     form.append('path', carpeta);
-    form.append('file', fs.createReadStream(localPath), { filename: `${carpeta}/${nombreDestino}` });
+    form.append('file', fs.createReadStream(localPath), { 
+        filename: `${carpeta}/${nombreFinal}` 
+    });
 
     try {
         await axios.post(`${BASE_URL_API}/station/${STATION_ID}/files`, form, {
-            headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
+            headers: { 
+                ...form.getHeaders(), 
+                "X-API-Key": KEYS.AZURA 
+            },
             maxContentLength: Infinity,
             maxBodyLength: Infinity
         });
-        fs.unlinkSync(localPath); // Borrar temporal
+        console.log(`✅ Subido con éxito: ${nombreFinal} a ${carpeta}`);
+        if (fs.existsSync(localPath)) fs.unlinkSync(localPath); // Borrar temporal
         return true;
-    } catch (e) {
-        console.error("Error subiendo a Azura:", e.response?.data || e.message);
+    } catch (error) {
+        console.error("❌ Error Azura:", error.response?.data || error.message);
+        if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
         return false;
     }
 }
+
+// ======= 4. LÓGICA DEL BOT DE TELEGRAM =======
+bot.on('message', async (msg) => {
+    if (!msg.text || msg.text.startsWith('/')) return;
+
+    const textoUsuario = msg.text.trim();
+    const nombreOyente = msg.from.first_name || "un fiel oyente";
+
+    bot.sendMessage(msg.chat.id, "🎙️ **Valeria:** \"Deme un segundo, estoy buscando ese clásico en mi colección...\"");
+
+    try {
+        // Buscar en YouTube
+        const video = await YouTube.searchOne(textoUsuario);
+        
+        // Decidir si es canción o saludo
+        // Si el título del video coincide en algo con lo que escribió el usuario, es canción
+        const esCancion = video && video.title.toLowerCase().includes(textoUsuario.toLowerCase().split(' ')[0]);
+
+        const guion = await obtenerGuionValeria(nombreOyente, esCancion ? video.title : textoUsuario, esCancion);
+        const rutaLocucion = await generarVozSalome(guion);
+
+        if (esCancion) {
+            const nombreArchivoMusica = `pedido_${video.id}.mp3`;
+            const rutaMusica = path.join(__dirname, nombreArchivoMusica);
+
+            // Descargar de YouTube
+            const stream = await ytdl(video.url, { filter: 'audioonly', quality: 'highestaudio' });
+            await pipeline(stream, fs.createWriteStream(rutaMusica));
+
+            // Subir Presentación y Música
+            await subirAzura(rutaLocucion, "Locuciones", `intro_${Date.now()}.mp3`);
+            const exitoMusica = await subirAzura(rutaMusica, "Musica_Nueva", nombreArchivoMusica);
+
+            if (exitoMusica) {
+                bot.sendMessage(msg.chat.id, `✅ **¡Encontrada!**\n🎶 "${video.title}"\n\n🎙️ Valeria dice: _"${guion}"_`);
+            }
+        } else {
+            // Es solo un saludo
+            const exitoSaludo = await subirAzura(rutaLocucion, "Saludos", `saludo_${Date.now()}.mp3`);
+            if (exitoSaludo) {
+                bot.sendMessage(msg.chat.id, "✅ Tu saludo ha sido enviado.");
+            }
+        }
+    } catch (error) {
+        console.error("Error General:", error);
+        bot.sendMessage(msg.chat.id, "Hubo un pequeño problema en la antena, por favor intenta de nuevo.");
+    }
+});
+
+console.log("🚀 El bot esta encendido y escuchando...");
 
 
 async function obtenerAhoraSuena() {
