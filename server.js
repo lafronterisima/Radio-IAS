@@ -48,14 +48,24 @@ bot.deleteWebHook().then(() => {
 
 async function buscarMusicaOficial(query) {
     try {
+        if (!KEYS.YOUTUBE) {
+            console.error("❌ Error: No se encontró la API KEY de YouTube en las variables.");
+            return null;
+        }
+
         const res = await youtube.search.list({
             part: 'snippet',
-            q: `${query} official audio`,
+            q: `${query} official audio`, // Agregamos "official audio" para mejor calidad
             maxResults: 1,
             type: 'video',
-            videoCategoryId: '10'
+            videoCategoryId: '10' // Filtrar estrictamente por categoría "Música"
         });
-        if (!res.data.items || res.data.items.length === 0) return null;
+
+        if (!res.data.items || res.data.items.length === 0) {
+            console.log(`⚠️ No se encontraron resultados para: ${query}`);
+            return null;
+        }
+
         const item = res.data.items[0];
         return { 
             id: item.id.videoId, 
@@ -63,7 +73,7 @@ async function buscarMusicaOficial(query) {
             url: `https://www.youtube.com/watch?v=${item.id.videoId}` 
         };
     } catch (e) { 
-        console.error("Error en búsqueda YT:", e.message);
+        console.error("❌ Error en la API de YouTube:", e.message);
         return null; 
     }
 }
