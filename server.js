@@ -36,21 +36,26 @@ const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 const groq = new Groq({ apiKey: KEYS.GROQ });
 
-// ======= 1. IA: EL PENSAMIENTO DE VALERIA (GROQ) =======
+
+// ======= 1. IA: EL PENSAMIENTO DE SALOMÉ (GROQ) =======
 async function obtenerGuionValeria(oyente, mensaje, esMusica) {
     try {
-        const prompt = `Eres Salomé, locutora de la emisora "La Ochentera". Eres elegante, sofisticada y con un toque de nostalgia rumbera. 
-        Un oyente llamado ${oyente} ${esMusica ? 'acaba de pedir la canción: ' + mensaje : 'te envía este saludo: ' + mensaje}.
-        Escribe un guion para radio muy breve (máximo 30 palabras) para presentarlo al aire. 
-        Usa frases como "Clásicos que acarician el alma" o "En la sintonía de los recuerdos". No uses emojis.`;
+        const prompt = `Eres Salomé, locutora de "La Ochentera". Elegante y sofisticada. 
+        El oyente ${oyente} ${esMusica ? 'pidió: ' + mensaje : 'mandó este saludo: ' + mensaje}.
+        Escribe un guion para radio muy breve (máximo 25 palabras) para presentarlo al aire. 
+        Sin emojis ni asteriscos. Usa un tono profesional.`;
 
         const completion = await groq.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
             model: 'llama3-8b-8192',
+            temperature: 0.7,
         });
-        return completion.choices[0].message.content;
+        
+        // Limpiamos cualquier formato Markdown que Groq pueda enviar
+        return completion.choices[0].message.content.replace(/[*#_]/g, '').trim();
     } catch (error) {
-        return `Aquí tenemos un pedido especial de ${oyente}. Disfrútenlo.`;
+        console.error("❌ Error en Groq:", error.message);
+        return `Un saludo especial para ${oyente} que está en sintonía de La Ochentera.`;
     }
 }
 
@@ -60,98 +65,100 @@ async function generarVozSalome(texto) {
     const filePath = path.join(__dirname, fileName);
     
     const speechConfig = sdk.SpeechConfig.fromSubscription(KEYS.AZURE_KEY, KEYS.AZURE_REGION);
-    speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural"; // Voz elegante colombiana
+    speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
     
+    // Configuramos para que el formato de salida sea MP3 de buena calidad
+    speechConfig.setSpeechSynthesisOutputFormat(sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitrateMonoMp3);
+
     const audioConfig = sdk.AudioConfig.fromAudioFileOutput(filePath);
     const synthesizer = new sdk.SpeechSynthesizer(speechConfig, audioConfig);
 
     return new Promise((resolve, reject) => {
-        synthesizer.speakTextAsync(texto, result => {
-            synthesizer.close();
-            resolve(filePath);
-        }, err => {
-            synthesizer.close();
-            reject(err);
-        });
-    });
-}
-
-// ======= 3. FUNCIÓN DE SUBIDA A AZURACAST =======
-async function subirAzura(localPath, carpeta, nombreFinal) {
-    const form = new FormData();
-    form.append('path', carpeta);
-    form.append('file', fs.createReadStream(localPath), { 
-        filename: `${carpeta}/${nombreFinal}` 
-    });
-
-    try {
-        await axios.post(`${BASE_URL_API}/station/${STATION_ID}/files`, form, {
-            headers: { 
-                ...form.getHeaders(), 
-                "X-API-Key": KEYS.AZURA 
+        console.log("🎙️ Generando voz con Azure...");
+        synthesizer.speakTextAsync(
+            texto,
+            result => {
+                if (result.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+                    synthesizer.close();
+                    // Verificación extra de que el archivo existe en disco
+                    if (fs.existsSync(filePath)) {
+                        console.log("✅ Archivo de voz creado:", filePath);
+                        resolve(filePath);
+                    } else {
+                        reject(new Error("Archivo de audio no encontrado en disco tras síntesis"));
+                    }
+                } else {
+                    synthesizer.close();
+                    reject(new Error(`Síntesis fallida: ${result.errorDetails}`));
+                }
             },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
-        });
-        console.log(`✅ Subido con éxito: ${nombreFinal} a ${carpeta}`);
-        if (fs.existsSync(localPath)) fs.unlinkSync(localPath); // Borrar temporal
-        return true;
-    } catch (error) {
-        console.error("❌ Error Azura:", error.response?.data || error.message);
-        if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
-        return false;
-    }
+            err => {
+                synthesizer.close();
+                reject(err);
+            }
+        );
+    });
 }
 
-// ======= 4. LÓGICA DEL BOT DE TELEGRAM =======
+// ======= 4. LÓGICA DEL BOT DE TELEGRAM (ACTUALIZADA) =======
 bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/')) return;
 
     const textoUsuario = msg.text.trim();
     const nombreOyente = msg.from.first_name || "un fiel oyente";
 
-    bot.sendMessage(msg.chat.id, "🎙️ **Valeria:** \"Deme un segundo, estoy buscando ese clásico en mi colección...\"");
+    bot.sendMessage(msg.chat.id, "🎙️ **Salomé:** \"Permítame un instante, estoy preparando su mensaje...\"");
 
     try {
-        // Buscar en YouTube
+        // 1. Buscar en YouTube primero para decidir el flujo
         const video = await YouTube.searchOne(textoUsuario);
-        
-        // Decidir si es canción o saludo
-        // Si el título del video coincide en algo con lo que escribió el usuario, es canción
         const esCancion = video && video.title.toLowerCase().includes(textoUsuario.toLowerCase().split(' ')[0]);
 
+        // 2. Generar el guion de la IA
         const guion = await obtenerGuionValeria(nombreOyente, esCancion ? video.title : textoUsuario, esCancion);
-        const rutaLocucion = await generarVozSalome(guion);
+        
+        // 3. Generar la voz (SALUDO/INTRO) - ¡CRÍTICO ESPERAR AQUÍ!
+        let rutaLocucion;
+        try {
+            rutaLocucion = await generarVozSalome(guion);
+        } catch (ttsError) {
+            console.error("❌ Error TTS:", ttsError.message);
+            return bot.sendMessage(msg.chat.id, "Lo siento, mi voz está un poco cansada. Intenta de nuevo en un momento.");
+        }
 
         if (esCancion) {
             const nombreArchivoMusica = `pedido_${video.id}.mp3`;
             const rutaMusica = path.join(__dirname, nombreArchivoMusica);
 
             // Descargar de YouTube
+            console.log("📥 Descargando de YT:", video.title);
             const stream = await ytdl(video.url, { filter: 'audioonly', quality: 'highestaudio' });
             await pipeline(stream, fs.createWriteStream(rutaMusica));
 
-            // Subir Presentación y Música
+            // Subir Presentación (Intro de la canción)
             await subirAzura(rutaLocucion, "Locuciones", `intro_${Date.now()}.mp3`);
+            
+            // Subir Música
             const exitoMusica = await subirAzura(rutaMusica, "Musica_Nueva", nombreArchivoMusica);
 
             if (exitoMusica) {
-                bot.sendMessage(msg.chat.id, `✅ **¡Encontrada!**\n🎶 "${video.title}"\n\n🎙️ Valeria dice: _"${guion}"_`);
+                bot.sendMessage(msg.chat.id, `✅ **¡Encontrada!**\n🎶 "${video.title}"\n\n🎙️ Salomé dice: _"${guion}"_`);
             }
         } else {
-            // Es solo un saludo
+            // Es solo un saludo: SUBIR A CARPETA SALUDOS
+            console.log("📤 Subiendo solo saludo...");
             const exitoSaludo = await subirAzura(rutaLocucion, "Saludos", `saludo_${Date.now()}.mp3`);
             if (exitoSaludo) {
                 bot.sendMessage(msg.chat.id, "✅ Tu saludo ha sido enviado.");
+            } else {
+                bot.sendMessage(msg.chat.id, "❌ No pude subir el saludo.");
             }
         }
     } catch (error) {
-        console.error("Error General:", error);
-        bot.sendMessage(msg.chat.id, "Hubo un pequeño problema en la antena, por favor intenta de nuevo.");
+        console.error("❌ Error General:", error);
+        bot.sendMessage(msg.chat.id, "Hubo un bache en la señal. ¿Podrías repetirlo?");
     }
 });
-
-console.log("🚀 El bot esta encendido y escuchando...");
 
 
 async function obtenerAhoraSuena() {
