@@ -129,35 +129,71 @@ async function iniciarSistema() {
 }
 
 bot.on('message', async (msg) => {
+    // Ignorar si no es texto o es un comando
     if (!msg.text || msg.text.startsWith('/')) return;
+
     const query = msg.text.trim();
     const oyente = msg.from.first_name || "un oyente";
     ultimoSaludo = query; 
 
+    console.log(`📥 Pedido de ${oyente}: ${query}`);
     bot.sendMessage(msg.chat.id, "🎙️ **Salomé:** _\"Permítame un instante, busco eso en mi colección...\"_");
 
     try {
+        // 1. Búsqueda en YouTube con validación
         const video = await buscarMusicaOficial(query);
+        
+        // Determinar si es una canción válida o solo un mensaje
+        // Si no hay video, lo tratamos solo como un saludo/mensaje a la cabina
         const esCancion = video && video.title.toLowerCase().includes(query.split(' ')[0].toLowerCase());
+
+        // 2. Generar Guion de Locución
         const guion = await obtenerGuionSalome(oyente, esCancion ? video.title : query, esCancion);
+        console.log(`📝 Guion generado: ${guion}`);
+
+        // 3. Generar Voz (Azure)
         const rutaVoz = await generarVozSalome(guion);
+        if (!fs.existsSync(rutaVoz)) throw new Error("No se pudo crear el archivo de voz");
 
         if (esCancion) {
+            console.log(`🎵 Procesando canción: ${video.title}`);
             const rutaMusica = path.join(__dirname, `mus_${video.id}.mp3`);
-            const stream = await ytdl(video.url, { filter: 'audioonly', quality: 'highestaudio' });
+            
+            // 4. Descarga de YouTube (ytdl)
+            const stream = ytdl(video.url, { filter: 'audioonly', quality: 'highestaudio' });
             await pipeline(stream, fs.createWriteStream(rutaMusica));
 
-            await subirAzura(rutaVoz, "Locuciones", `intro_${Date.now()}.mp3`);
-            await subirAzura(rutaMusica, "Musica_Nueva", `pedido_${video.id}.mp3`);
-            await refrescarAzura();
-            bot.sendMessage(msg.chat.id, `✅ **Encontrada:** ${video.title}\n🎙️ _"${guion}"_`);
+            // Verificar que la música se descargó
+            if (!fs.existsSync(rutaMusica)) throw new Error("Error en descarga de música");
+
+            // 5. Subida a AzuraCast (Locución + Música)
+            // IMPORTANTE: Verifica que las carpetas "Locuciones" y "Musica_Nueva" existan en tu Azura
+            const okVoz = await subirAzura(rutaVoz, "Locuciones", `intro_${Date.now()}.mp3`);
+            const okMus = await subirAzura(rutaMusica, "Musica_Nueva", `pedido_${video.id}.mp3`);
+
+            if (okVoz && okMus) {
+                await refrescarAzura();
+                bot.sendMessage(msg.chat.id, `✅ **¡Encontrada!**\n🎶 ${video.title}\n🎙️ _"${guion}"_`);
+            } else {
+                throw new Error("Fallo al subir archivos a AzuraCast");
+            }
         } else {
-            await subirAzura(rutaVoz, "Saludos", `saludo_${Date.now()}.mp3`);
-            await refrescarAzura();
-            bot.sendMessage(msg.chat.id, "✅ Tu mensaje ya está en cabina.");
+            // Caso: Solo saludo (no se encontró canción clara)
+            const okVoz = await subirAzura(rutaVoz, "Saludos", `saludo_${Date.now()}.mp3`);
+            if (okVoz) {
+                await refrescarAzura();
+                bot.sendMessage(msg.chat.id, "✅ Tu mensaje ya está en cabina. ¡Pronto lo escucharás!");
+            } else {
+                throw new Error("Fallo al subir saludo a AzuraCast");
+            }
         }
+
     } catch (e) {
-        bot.sendMessage(msg.chat.id, "Hubo un bache en la señal, intente de nuevo.");
+        // Log detallado para que veas en Koyeb qué falló exactamente
+        console.error("❌ ERROR EN PROCESO TELEGRAM:", e.message);
+        
+        // Respuesta al usuario
+        bot.sendMessage(msg.chat.id, "⚠️ Hubo un pequeño bache en la señal al procesar tu pedido. Por favor, intenta de nuevo en unos segundos.");
     }
 });
 
