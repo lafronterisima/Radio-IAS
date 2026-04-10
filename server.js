@@ -36,7 +36,10 @@ const KEYS = {
 const app = express();
 const groq = new Groq({ apiKey: KEYS.GROQ });
 const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
-const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
+// Configuración de Bot con autoStart desactivado para limpieza previa
+const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { 
+    polling: { autoStart: false } 
+});
 
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_FILES = `${AZURA_BASE}/files`;
@@ -49,8 +52,6 @@ bot.deleteWebHook().then(() => {
 
 // ======= 1. BÚSQUEDA PROFESIONAL YOUTUBE =======
 
-// ======= 3. FUNCIONES DE APOYO =======
-
 async function buscarMusicaOficial(query) {
     try {
         const res = await youtube.search.list({
@@ -58,40 +59,27 @@ async function buscarMusicaOficial(query) {
             q: `${query} official audio`,
             maxResults: 1,
             type: 'video',
-            videoCategoryId: '10',
-            relevanceLanguage: 'es'
+            videoCategoryId: '10'
         });
         if (!res.data.items || res.data.items.length === 0) return null;
         const item = res.data.items[0];
-        return { 
-            id: item.id.videoId, 
-            title: item.snippet.title, 
-            url: `https://www.youtube.com/watch?v=${item.id.videoId}` 
-        };
-    } catch (e) {
-        console.error("❌ Error YouTube:", e.message);
-        return null;
-    }
+        return { id: item.id.videoId, title: item.snippet.title, url: `https://www.youtube.com/watch?v=${item.id.videoId}` };
+    } catch (e) { return null; }
 }
 
 async function obtenerGuionSalome(oyente, mensaje, esMusica) {
     try {
-        const prompt = `Eres Salomé, locutora de "La Ochentera". Elegante y profesional. 
-        El oyente ${oyente} ${esMusica ? 'pidió la canción: ' + mensaje : 'mandó este mensaje: ' + mensaje}. 
-        Escribe un guion para radio muy breve (máximo 20 palabras). Sin emojis ni asteriscos.`;
-        
+        const prompt = `Eres Salomé, locutora de "La Ochentera". Elegante. El oyente ${oyente} ${esMusica ? 'pidió: ' + mensaje : 'dice: ' + mensaje}. Guion corto (20 palabras). Sin emojis.`;
         const completion = await groq.chat.completions.create({
             messages: [{ role: 'user', content: prompt }],
             model: 'llama3-8b-8192',
         });
         return completion.choices[0].message.content.replace(/[*#_]/g, '').trim();
-    } catch (e) {
-        return `Saludos para ${oyente} en la sintonía de La Ochentera.`;
-    }
+    } catch (e) { return `Saludos para ${oyente} en La Ochentera.`; }
 }
 
-async function generarVozSalome(texto) {
-    const filePath = path.join(__dirname, `voz_${Date.now()}.mp3`);
+async function generarVozSalome(texto, nombreArchivo = `voz_${Date.now()}.mp3`) {
+    const filePath = path.join(__dirname, nombreArchivo);
     const speechConfig = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
     speechConfig.speechSynthesisVoiceName = "es-CO-SalomeNeural";
     speechConfig.setSpeechSynthesisOutputFormat(sdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitrateMonoMp3);
@@ -102,19 +90,15 @@ async function generarVozSalome(texto) {
     return new Promise((resolve, reject) => {
         synthesizer.speakTextAsync(texto, result => {
             synthesizer.close();
-            setTimeout(() => { resolve(filePath); }, 250);
-        }, err => {
-            synthesizer.close();
-            reject(err);
-        });
+            setTimeout(() => { resolve(filePath); }, 300);
+        }, err => { synthesizer.close(); reject(err); });
     });
 }
 
 async function subirAzura(localPath, carpeta, nombreFinal) {
     const form = new FormData();
     form.append('path', carpeta);
-    form.append('file', fs.createReadStream(localPath), { filename: `${carpeta}/${nombreFinal}` });
-    
+    form.append('file', fs.createReadStream(localPath), { filename: nombreFinal });
     try {
         await axios.post(AZURA_API_FILES, form, {
             headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }
@@ -122,7 +106,6 @@ async function subirAzura(localPath, carpeta, nombreFinal) {
         if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
         return true;
     } catch (e) {
-        console.error(`❌ Error subida a ${carpeta}:`, e.message);
         if (fs.existsSync(localPath)) fs.unlinkSync(localPath);
         return false;
     }
@@ -130,24 +113,28 @@ async function subirAzura(localPath, carpeta, nombreFinal) {
 
 async function refrescarAzura() {
     try {
-        await axios.post(`${AZURA_BASE}/run/re-index`, {}, {
-            headers: { "X-API-Key": KEYS.AZURA }
-        });
-    } catch (e) {
-        console.error("No se pudo refrescar el índice de Azura.");
-    }
+        await axios.post(`${AZURA_BASE}/run/re-index`, {}, { headers: { "X-API-Key": KEYS.AZURA } });
+    } catch (e) { console.error("Error re-index"); }
 }
 
-// ======= 4. LÓGICA DE TELEGRAM =======
+// ======= 4. LÓGICA DE TELEGRAM Y ARRANQUE LIMPIO =======
+
+async function iniciarSistema() {
+    try {
+        // Matar cualquier conexión previa para evitar Error 409 Conflict
+        await bot.deleteWebHook({ drop_pending_updates: true });
+        bot.startPolling();
+        console.log("✅ Telegram Polling reiniciado sin conflictos.");
+    } catch (e) { console.error("Error iniciando Bot:", e.message); }
+}
 
 bot.on('message', async (msg) => {
     if (!msg.text || msg.text.startsWith('/')) return;
-
     const query = msg.text.trim();
     const oyente = msg.from.first_name || "un oyente";
-    ultimoSaludo = query; // Guardamos el último mensaje recibido
+    ultimoSaludo = query; 
 
-    bot.sendMessage(msg.chat.id, "🎙️ **Salomé:** _\"Buscando en los archivos de La Fronterisima...\"_");
+    bot.sendMessage(msg.chat.id, "🎙️ **Salomé:** _\"Permítame un instante, busco eso en mi colección...\"_");
 
     try {
         const video = await buscarMusicaOficial(query);
@@ -163,16 +150,14 @@ bot.on('message', async (msg) => {
             await subirAzura(rutaVoz, "Locuciones", `intro_${Date.now()}.mp3`);
             await subirAzura(rutaMusica, "Musica_Nueva", `pedido_${video.id}.mp3`);
             await refrescarAzura();
-            
-            bot.sendMessage(msg.chat.id, `✅ **¡Encontrada!**\n🎶 ${video.title}\n🎙️ _"${guion}"_`);
+            bot.sendMessage(msg.chat.id, `✅ **Encontrada:** ${video.title}\n🎙️ _"${guion}"_`);
         } else {
             await subirAzura(rutaVoz, "Saludos", `saludo_${Date.now()}.mp3`);
             await refrescarAzura();
-            bot.sendMessage(msg.chat.id, "✅ Tu mensaje ya está en la cabina.");
+            bot.sendMessage(msg.chat.id, "✅ Tu mensaje ya está en cabina.");
         }
-    } catch (error) {
-        console.error(error);
-        bot.sendMessage(msg.chat.id, "Hubo un bache en la señal. Intenta de nuevo.");
+    } catch (e) {
+        bot.sendMessage(msg.chat.id, "Hubo un bache en la señal, intente de nuevo.");
     }
 });
 
@@ -325,10 +310,39 @@ app.post('/login', (req, res) => {
 
 app.get("/health", (req, res) => res.sendStatus(200));
 
+
+
 // ======= 8. INICIO DEL SERVIDOR =======
 const PORT = process.env.PORT || 8000;
+
+// Agregamos un endpoint de salud (esto evita que Koyeb reinicie el app)
+app.get('/', (req, res) => {
+    res.status(200).send('📻 La Fronterísima Pro está al aire.');
+});
+
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
+    
+    // IMPORTANTE: Llamamos a la función que limpia Telegram y arranca el bot
+    // después de que el servidor web ya está funcionando.
+    iniciarSistema(); 
+});
+
+// Función de arranque limpio para evitar el Error 409
+async function iniciarSistema() {
+    try {
+        console.log("🧹 Limpiando sesiones previas de Telegram...");
+        // Esto "mata" cualquier conexión anterior y borra mensajes acumulados
+        await bot.deleteWebHook({ drop_pending_updates: true }); 
+        
+        bot.startPolling();
+        console.log("✅ Salomé escuchando en Telegram sin conflictos.");
+    } catch (e) {
+        console.error("❌ Error al iniciar Telegram:", e.message);
+    }
+}
+
+    
     
     // Reporte de clima/noticias cada 15 minutos
     setTimeout(autoReporte, 5000);
