@@ -9,7 +9,7 @@ const path = require("path");
 const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
 const YouTube = require('youtube-sr').default;
-const ytdl = require('ytdl-core-discord');
+const ytdl = require('@distube/ytdl-core');
 const { Groq } = require('groq-sdk');
 
 const app = express();
@@ -40,7 +40,7 @@ const groq = new Groq({ apiKey: KEYS.GROQ });
 async function generarGuionValeria(oyente, mensaje, esCancion = false) {
     const contexto = esCancion ? `pidió la canción: ${mensaje}` : `envió este saludo: ${mensaje}`;
     
-    const prompt = `Eres Valeria, locutora de la emisora "La Fronterisima". Eres elegante, culta y nostálgica. 
+    const prompt = `Eres Salomé, locutora de la emisora "La Fronterisima". Eres elegante, culta y nostálgica. 
     Un oyente llamado ${oyente} ${contexto}. 
     Escribe un guion breve para radio (máximo 35 palabras) presentándolo. 
     Usa un tono sofisticado. No uses emojis ni hashtags.`;
@@ -103,11 +103,11 @@ bot.on('message', async (msg) => {
             await subirAzura(rutaLocucion, "Locuciones", `valeria_${Date.now()}.mp3`);
             await subirAzura(rutaMusica, "Musica_Nueva", `pedido_${video.id}.mp3`);
             
-            bot.sendMessage(msg.chat.id, `✅ ¡Listo! Valeria presentará "${video.title}" en un momento.`);
+            bot.sendMessage(msg.chat.id, `✅ ¡Listo! Salomé presentará "${video.title}" en un momento.`);
         } else {
             // Solo subir el saludo/locución
             await subirAzura(rutaLocucion, "Saludos", `saludo_${Date.now()}.mp3`);
-            bot.sendMessage(msg.chat.id, "✅ Tu saludo ha sido enviado a la cabina de La Ochentera.");
+            bot.sendMessage(msg.chat.id, "✅ Tu saludo ha sido enviado a la Fronterisima.");
         }
     } catch (error) {
         console.error("Error en el proceso:", error);
