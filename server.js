@@ -77,33 +77,86 @@ async function buscarMusicaYouTube(query) {
 }
 
 async function descargarYSubirAzura(video) {
+    // 1. Definición de rutas y nombres
     const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
-    const cookiesPath = path.join(__dirname, 'cookies.txt'); // Ruta al archivo que bajaste
+    const carpetaDestino = "Musica_Nueva"; 
+    const nombreArchivo = `pedido_${Date.now()}.mp3`;
+    const rutaRelativaCompleta = `${carpetaDestino}/${nombreArchivo}`;
+    const cookiesPath = path.join(__dirname, 'cookies.txt');
 
     try {
-        console.log(`📥 Descargando con Cookies: ${video.title}`);
+        console.log(`📥 Descargando de YT: ${video.title}`);
 
-        // Verificamos si el archivo de cookies existe antes de empezar
-        if (!fs.existsSync(cookiesPath)) {
-            throw new Error("❌ No se encontró el archivo cookies.txt en la carpeta del proyecto.");
+        // 2. Verificación de Cookies para evitar bloqueo "Sign in to confirm..."
+        let requestOptions = {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        };
+
+        if (fs.existsSync(cookiesPath)) {
+            console.log("🍪 Usando cookies.txt para la descarga.");
+            requestOptions.headers.cookie = fs.readFileSync(cookiesPath, 'utf8');
+        } else {
+            console.warn("⚠️ No se encontró cookies.txt, la descarga podría fallar.");
         }
 
-        const cookieData = fs.readFileSync(cookiesPath, 'utf8');
-
+        // 3. Descarga efectiva desde YouTube
         await pipeline(
             ytdl(video.url, { 
                 filter: 'audioonly', 
                 quality: 'highestaudio',
-                requestOptions: {
-                    headers: {
-                        // Aquí le pasamos tus cookies a YouTube
-                        'Cookie': cookieData,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                    }
-                }
+                requestOptions: requestOptions
             }),
             fs.createWriteStream(tempFile)
         );
+
+        console.log(`✅ Descarga local lista: ${tempFile}`);
+
+        // 4. Preparación del Formulario para AzuraCast
+        const form = new FormData();
+        
+        // El path siempre primero
+        form.append('path', carpetaDestino); 
+
+        // Agregamos el archivo forzando la ruta completa en el filename
+        form.append('file', fs.createReadStream(tempFile), { 
+            filename: rutaRelativaCompleta, 
+            contentType: 'audio/mpeg'
+        });
+
+        console.log(`📤 Subiendo a AzuraCast en: ${rutaRelativaCompleta}`);
+
+        // 5. Envío mediante Axios a la API de Azura
+        await axios.post(AZURA_API_UPLOAD, form, { 
+            headers: { 
+                ...form.getHeaders(), 
+                "X-API-Key": KEYS.AZURA 
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            timeout: 180000 // 3 minutos
+        });
+
+        console.log(`✅ ¡Éxito! Canción disponible en la radio.`);
+        return true;
+
+    } catch (err) {
+        // Log detallado para detectar si el fallo es YouTube o Azura
+        console.error("❌ Error en el proceso:", err.response?.data || err.message);
+        return false;
+    } finally {
+        // Limpieza del archivo temporal (muy importante en Windows)
+        if (fs.existsSync(tempFile)) {
+            try {
+                fs.unlinkSync(tempFile);
+                console.log("🗑️ Archivo temporal eliminado.");
+            } catch (e) {
+                console.error("No se pudo eliminar el temporal:", e.message);
+            }
+        }
+    }
+}
 
 // ======= LÓGICA DE TELEGRAM =======
 
