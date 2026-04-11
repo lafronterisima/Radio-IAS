@@ -44,40 +44,38 @@ let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 
 // ======= 3. FUNCIONES DE APOYO (YOUTUBE) =======
 
+// Silenciar errores de conflicto en el log
+bot.on('polling_error', (err) => {
+    if (!err.message.includes('409')) console.error("Bot Error:", err.message);
+});
+
+// ======= 3. FUNCIONES DE APOYO =======
+
 async function buscarMusicaYouTube(query) {
     try {
-        if (!KEYS.YOUTUBE) return null;
         const res = await youtube.search.list({
             part: 'snippet',
             q: `${query} official audio`,
             maxResults: 1,
             type: 'video',
-            videoCategoryId: '10' // Categoría Música
+            videoCategoryId: '10'
         });
-        if (!res.data.items || res.data.items.length === 0) return null;
+        if (!res.data.items?.length) return null;
         const item = res.data.items[0];
-        return { 
-            id: item.id.videoId, 
-            title: item.snippet.title, 
-            url: `https://www.youtube.com/watch?v=${item.id.videoId}` 
-        };
-    } catch (e) { 
-        console.error("❌ Error YouTube:", e.message);
-        return null; 
-    }
+        return { id: item.id.videoId, title: item.snippet.title, url: `https://www.youtube.com/watch?v=${item.id.videoId}` };
+    } catch (e) { return null; }
 }
 
-async function descargarYSubirAzura(video, carpeta = "Musica_Nueva") {
-    const tempFile = path.join(__dirname, `yt_${video.id}.mp3`);
+async function descargarYSubirAzura(video) {
+    const tempFile = path.join(__dirname, `yt_${Date.now()}.mp3`);
     try {
-        console.log(`📥 Descargando de YT: ${video.title}`);
         const stream = ytdl(video.url, { filter: 'audioonly', quality: 'highestaudio' });
         await pipeline(stream, fs.createWriteStream(tempFile));
 
         const form = new FormData();
-        form.append('path', carpeta);
+        form.append('path', 'Musica_Nueva');
         form.append('file', fs.createReadStream(tempFile), { 
-            filename: `${carpeta}/pedido_${Date.now()}.mp3`,
+            filename: `Musica_Nueva/pedido_${Date.now()}.mp3`,
             contentType: 'audio/mpeg'
         });
 
@@ -89,7 +87,6 @@ async function descargarYSubirAzura(video, carpeta = "Musica_Nueva") {
         if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         return true;
     } catch (err) {
-        console.error("❌ Error Proceso:", err.message);
         if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         return false;
     }
@@ -98,33 +95,24 @@ async function descargarYSubirAzura(video, carpeta = "Musica_Nueva") {
 // ======= 4. LÓGICA DE TELEGRAM =======
 
 bot.on('message', async (msg) => {
-    if (!msg.text) return;
+    if (!msg.text || msg.text.startsWith('/start')) return;
 
-    const nombreOyente = msg.from.first_name || "un oyente";
-
+    const nombre = msg.from.first_name || "oyente";
+    
     if (msg.text.startsWith('/pedir ')) {
         const busqueda = msg.text.replace('/pedir ', '').trim();
-        bot.sendMessage(msg.chat.id, `🔎 Buscando en YouTube: "${busqueda}"...`);
+        bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}" en YouTube...`);
         
         const video = await buscarMusicaYouTube(busqueda);
-        if (video) {
-            const exito = await descargarYSubirAzura(video);
-            if (exito) {
-                ultimoSaludo = { nombre: nombreOyente, texto: `pidió ${video.title}`, fecha: new Date() };
-                bot.sendMessage(msg.chat.id, `✅ **¡Encontrada!**\n🎶 "${video.title}"\n\nSalomé la presentará en breve.`);
-            } else {
-                bot.sendMessage(msg.chat.id, "❌ Error al subir la canción a la radio.");
-            }
+        if (video && await descargarYSubirAzura(video)) {
+            ultimoSaludo = { nombre, texto: `pidió ${video.title}`, fecha: new Date() };
+            bot.sendMessage(msg.chat.id, `✅ **¡Encontrada!**\n🎶 "${video.title}"\nSalomé la presentará pronto.`);
         } else {
-            bot.sendMessage(msg.chat.id, "❌ No encontré esa canción en YouTube.");
+            bot.sendMessage(msg.chat.id, "❌ No pude procesar tu pedido.");
         }
-        return;
-    }
-
-    // Saludo normal
-    if (!msg.text.startsWith('/')) {
-        ultimoSaludo = { nombre: nombreOyente, texto: msg.text, fecha: new Date() };
-        bot.sendMessage(msg.chat.id, "¡Recibido! Salomé te enviará un saludo pronto. 🎙️");
+    } else {
+        ultimoSaludo = { nombre, texto: msg.text, fecha: new Date() };
+        bot.sendMessage(msg.chat.id, "🎙️ ¡Recibido! Tu saludo llegará a la cabina.");
     }
 });
 
@@ -277,18 +265,25 @@ app.post('/login', (req, res) => {
 app.get("/health", (req, res) => res.sendStatus(200));
 
 // ======= 8. INICIO DEL SERVIDOR =======
-const PORT = process.env.PORT || 8000;
-
 async function iniciarSistema() {
-    await bot.deleteWebHook({ drop_pending_updates: true });
-    setTimeout(() => {
-        bot.startPolling();
-        console.log("✅ Salomé escuchando en Telegram.");
-    }, 5000);
+    console.log("🎙️ Limpiando rastro de Telegram...");
+    try {
+        await bot.stopPolling();
+        await bot.deleteWebHook({ drop_pending_updates: true });
+    } catch (e) {}
+
+    console.log("⏳ Esperando 10 segundos para estabilizar conexión...");
+    setTimeout(async () => {
+        try {
+            await bot.startPolling();
+            console.log("✅ Salomé escuchando en Telegram.");
+        } catch (e) { console.error("Error al iniciar:", e.message); }
+    }, 10000);
 }
 
+const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Puerto ${PORT}`);
+    console.log(`🚀 Servidor en puerto ${PORT}`);
     iniciarSistema();
     setInterval(autoReporte, 15 * 60 * 1000);
     setInterval(autoRedactorIA, 50 * 60 * 1000);
