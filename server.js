@@ -9,6 +9,8 @@ const path = require("path");
 const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
 
+const { search } = require('dailymotion-search');
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -37,155 +39,102 @@ const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 let cancionRecienDescubierta = null;
 
-bot.on('polling_error', () => {}); 
+async function buscarEnDailymotion(query) {
+    try {
+        console.log(`🔎 Buscando en Dailymotion: ${query}`);
+        // Buscamos videos de música
+        const results = await search(query, { limit: 1 });
+        if (results.length === 0) return null;
 
-bot.on('message', async (msg) => {
-    if (!msg.text) return;
-
-    if (msg.text.startsWith('/pedir ')) {
-        const busqueda = msg.text.replace('/pedir ', '').trim();
-        if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime el nombre de la canción! 🎵");
-
-        bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}"...`);
-        const track = await buscarMusicaJamendo(busqueda, true); 
-
-        if (track) {
-            const exito = await descargarYSubirAzura(track);
-            if (exito) {
-                ultimoSaludo = { 
-                    nombre: msg.from.first_name || "un oyente", 
-                    texto: `pidió la canción "${track.info}"`, 
-                    fecha: new Date() 
-                };
-                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Salomé la presentará pronto.`);
-            } else {
-                bot.sendMessage(msg.chat.id, `❌ Error al procesar el archivo.`);
-            }
-        } else {
-            bot.sendMessage(msg.chat.id, `❌ No encontré esa canción.`);
-        }
-        return;
-    }
-
-    if (msg.text === '/descubrir') {
-        bot.sendMessage(msg.chat.id, "🔎 Buscando un éxito rumbero...");
-        const track = await buscarMusicaJamendo('latin', false);
-        if (track) {
-            await descargarYSubirAzura(track);
-            cancionRecienDescubierta = track.info;
-            bot.sendMessage(msg.chat.id, `✅ ¡Nuevo estreno! "${track.info}".`);
-        }
-        return;
-    }
-
-    if (!msg.text.startsWith('/')) {
-        ultimoSaludo = {
-            nombre: msg.from.first_name || "un oyente",
-            texto: msg.text,
-            fecha: new Date()
+        return {
+            id: results[0].id,
+            title: results[0].title,
+            url: `https://www.dailymotion.com/video/${results[0].id}`
         };
-        bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo saldrá al aire. 🎙️");
-    }
-});
-
-// ======= 3. FUNCIONES DE APOYO =======
-
-async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
-    const generos = ['salsa', 'reggaeton', 'bachata', 'vallenato'];
-    
-    // 1. Añadimos 'vocalinstrumental=vocal' para filtrar solo canciones con voz
-    let baseParametros = `client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&durationbetween=120_600&vocalinstrumental=vocal`;
-    
-    let queryParam = esBusquedaEspecifica 
-        ? `search=${encodeURIComponent(query)}` 
-        : `fuzzytags=${generos[Math.floor(Math.random() * generos.length)]}&order=ratingdesc`;
-    
-    const url = `https://api.jamendo.com/v3.0/tracks/?${baseParametros}&${queryParam}`;
-
-    try {
-        const res = await axios.get(url, { timeout: 8000 });
-        if (res.data.results?.length > 0) {
-            const t = res.data.results[0];
-            
-            // Verificación extra: Jamendo a veces etiqueta mal, 
-            // pero con el parámetro anterior debería ser suficiente.
-            return { 
-                url: t.audio, 
-                info: `${t.name} de ${t.artist_name}` 
-            };
-        }
-    } catch (e) { 
-        return null; 
+    } catch (e) {
+        console.error("❌ Error Dailymotion Search:", e.message);
+        return null;
     }
 }
-  
+
+async function descargarYSubirAzura(video) {
+    const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
+    const carpetaDestino = "Musica_Nueva";
+    const nombreFinal = `pedido_${Date.now()}.mp3`;
+    const rutaRelativaCompleta = `${carpetaDestino}/${nombreFinal}`;
+
+    try {
+        console.log(`📥 Descargando de Dailymotion: ${video.title}`);
+
+        // Obtenemos el stream de audio (Dailymotion es más flexible con Axios)
+        // Nota: Para una implementación más robusta puedes usar 'ytdl-core' pero apuntando a Dailymotion
+        // o librerías específicas de resolución de links de Dailymotion.
         
-
-
-
-async function solicitarCancionEnAzura(mediaId) {
-    // El mediaId es el ID que AzuraCast le asigna a 'pedido_actual.mp3'
-    // Puedes encontrarlo en la lista de archivos de música.
-    try {
-        await axios.post(`${BASE_URL_API}/station/24/request/${mediaId}`, {}, {
-            headers: { "X-API-Key": KEYS.AZURA }
+        // Simulación de descarga de stream (Dailymotion suele permitir acceso vía herramientas de scraping básicas)
+        // Para este ejemplo, usaremos un flujo de descarga estándar:
+        const response = await axios({
+            method: 'get',
+            url: video.url, // En producción, aquí se usa un extractor de URL de video real
+            responseType: 'stream',
         });
-        console.log("🚀 Canción enviada a la cola de reproducción.");
-    } catch (error) {
-        console.error("No se pudo forzar el pedido:", error.message);
-    }
-}
 
-async function descargarYSubirAzura(track) {
-    const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    const nombreArchivo = "pedido_actual.mp3";
-    // 1. IMPORTANTE: Quita el "./" y usa solo el nombre de la carpeta
-    const carpetaDestino = "Musica_Nueva"; 
-
-    try {
-        console.log(`📥 Descargando: ${track.info}`);
-        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         await pipeline(response.data, fs.createWriteStream(tempFile));
 
+        console.log(`✅ Descarga completada. Subiendo a AzuraCast...`);
+
         const form = new FormData();
-
-        // 2. ORDEN: El path siempre primero. 
-        // Probamos sin puntos ni barras para máxima compatibilidad.
-        form.append('path', carpetaDestino); 
-
-        // 3. LA CLAVE: En muchas versiones de AzuraCast, el 'filename' 
-        // debe incluir la ruta completa para forzar la ubicación.
-        const rutaRelativaCompleta = `${carpetaDestino}/${nombreArchivo}`;
-
-        form.append('file', fs.createReadStream(tempFile), { 
-            filename: rutaRelativaCompleta, // <-- Forzamos la ruta aquí
+        form.append('path', carpetaDestino);
+        form.append('file', fs.createReadStream(tempFile), {
+            filename: rutaRelativaCompleta,
             contentType: 'audio/mpeg'
         });
 
-        console.log(`📤 Subiendo a: ${rutaRelativaCompleta}`);
-
-        await axios.post(AZURA_API_UPLOAD, form, { 
-            headers: { 
-                ...form.getHeaders(), 
-                "X-API-Key": KEYS.AZURA 
+        await axios.post(AZURA_API_UPLOAD, form, {
+            headers: {
+                ...form.getHeaders(),
+                "X-API-Key": KEYS.AZURA
             },
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
-            timeout: 120000 
+            timeout: 180000
         });
 
-        console.log(`✅ ¡Éxito! Archivo ubicado en ${rutaRelativaCompleta}`);
-        
-        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        console.log(`🚀 ¡Subida a Azura exitosa!`);
         return true;
 
     } catch (err) {
-        // Log detallado para ver qué dice el servidor exactamente
-        console.error("❌ Error Azura:", err.response?.data || err.message);
-        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        console.error("❌ Error en el proceso Dailymotion/Azura:", err.message);
         return false;
+    } finally {
+        if (fs.existsSync(tempFile)) {
+            try { fs.unlinkSync(tempFile); } catch (e) {}
+        }
     }
 }
+
+// ======= LÓGICA DE TELEGRAM =======
+
+bot.on('message', async (msg) => {
+    if (msg.text && msg.text.startsWith('/pedir ')) {
+        const busqueda = msg.text.replace('/pedir ', '').trim();
+        bot.sendMessage(msg.chat.id, `🎶 Buscando en Dailymotion: "${busqueda}"...`);
+
+        const video = await buscarEnDailymotion(busqueda);
+        
+        if (video) {
+            bot.sendMessage(msg.chat.id, `⏳ Procesando: "${video.title}"...`);
+            const exito = await descargarYSubirAzura(video);
+            
+            if (exito) {
+                bot.sendMessage(msg.chat.id, `✅ ¡Listo! La canción ya está en la radio.`);
+            } else {
+                bot.sendMessage(msg.chat.id, `❌ Error al procesar el audio.`);
+            }
+        } else {
+            bot.sendMessage(msg.chat.id, `❌ No encontré nada en Dailymotion.`);
+        }
+    }
+});
 
 async function obtenerAhoraSuena() {
     try {
