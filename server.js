@@ -58,10 +58,12 @@ async function buscarMusicaYouTube(query) {
             q: `${query} official audio`,
             maxResults: 1,
             type: 'video'
-            // Quitamos el categoryId para encontrar más resultados
         });
         
-        if (!res.data.items || res.data.items.length === 0) return null;
+        if (!res.data.items || res.data.items.length === 0) {
+            console.log("⚠️ No se encontraron resultados en YT.");
+            return null;
+        }
         
         const item = res.data.items[0];
         return { 
@@ -70,7 +72,7 @@ async function buscarMusicaYouTube(query) {
             url: `https://www.youtube.com/watch?v=${item.id.videoId}` 
         };
     } catch (e) { 
-        console.error("❌ Error en búsqueda YT:", e.message);
+        console.error("❌ Error API YouTube:", e.message);
         return null; 
     }
 }
@@ -78,50 +80,52 @@ async function buscarMusicaYouTube(query) {
 async function descargarYSubirAzura(video) {
     const tempFile = path.join(__dirname, 'tmp_yt_track.mp3');
     const carpetaDestino = "Musica_Nueva";
-    const nombreArchivo = "pedido_actual.mp3"; // O puedes usar `pedido_${Date.now()}.mp3`
+    const nombreArchivo = "pedido_actual.mp3"; 
     const rutaRelativaCompleta = `${carpetaDestino}/${nombreArchivo}`;
 
     try {
-        console.log(`📥 Descargando de YouTube: ${video.title}`);
+        console.log(`📥 Descargando: ${video.title}`);
         
-        // Descargamos el audio de YouTube
+        // Configuración de ytdl optimizada para evitar errores 403
         const stream = ytdl(video.url, { 
             filter: 'audioonly', 
-            quality: 'highestaudio' 
+            quality: 'highestaudio',
+            highWaterMark: 1 << 25 // Buffer de 32MB para evitar cortes
         });
         
         await pipeline(stream, fs.createWriteStream(tempFile));
+        console.log("📦 Descarga completada. Iniciando subida...");
 
         const form = new FormData();
-
-        // IMPORTANTE: El 'path' debe ir primero
+        // IMPORTANTE: Según tu análisis, el path va primero
         form.append('path', carpetaDestino); 
-
-        // LA CLAVE: filename debe llevar la ruta completa según tu análisis exitoso
         form.append('file', fs.createReadStream(tempFile), { 
             filename: rutaRelativaCompleta, 
             contentType: 'audio/mpeg'
         });
 
-        console.log(`📤 Subiendo a AzuraCast: ${rutaRelativaCompleta}`);
-
-        await axios.post(AZURA_API_UPLOAD, form, { 
+        const res = await axios.post(AZURA_API_UPLOAD, form, { 
             headers: { 
                 ...form.getHeaders(), 
                 "X-API-Key": KEYS.AZURA 
             },
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
-            timeout: 180000 // Aumentamos a 3 min por si el video es largo
+            timeout: 180000 
         });
 
-        console.log(`✅ ¡Éxito! Canción disponible en: ${rutaRelativaCompleta}`);
-        
+        console.log("✅ Azura respondió OK:", res.status);
         if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         return true;
 
     } catch (err) {
-        console.error("❌ Error en proceso Azura/YT:", err.response?.data || err.message);
+        // Log detallado para saber POR QUÉ falló
+        console.error("❌ Error en el proceso:");
+        if (err.response) {
+            console.error("Respuesta Azura:", err.response.data);
+        } else {
+            console.error("Mensaje:", err.message);
+        }
         if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         return false;
     }
