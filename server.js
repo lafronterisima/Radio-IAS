@@ -1,23 +1,20 @@
 require('dotenv').config();
 const express = require("express");
-const { google } = require('googleapis');
 const axios = require("axios");
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
-const ytExec = require('youtube-dl-exec');
 const path = require("path");
-const { Groq } = require('groq-sdk');
-const { Telegraf } = require('telegraf');
-const YTMusic = require("ytmusic-api");
+const TelegramBot = require('node-telegram-bot-api');
+const { pipeline } = require('stream/promises');
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 // ======= 1. CONFIGURACIÓN =======
-const safeTrim = (val) => (typeof val === 'string' ? val.trim() : "");
+const safeTrim = (val) => val ? val.trim() : "";
 const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
 
 const KEYS = {
@@ -25,103 +22,170 @@ const KEYS = {
     GROQ: safeTrim(process.env.GROQ_API_KEY),
     AZURE: safeTrim(process.env.AZURE_SPEECH_KEY),
     AZURE_REGION: safeTrim(process.env.AZURE_REGION),
-    AZURA_KEY: safeTrim(process.env.AZURA_KEY),
+    AZURA: safeTrim(process.env.AZURA_KEY),
     STATION_ID: sID,
     PASSWORD: safeTrim(process.env.APP_PASSWORD),
     TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN),
-    YOUTUBE: safeTrim(process.env.YOUTUBE_KEY),
-    AZURA_URL: safeTrim(process.env.AZURACAST_URL) // Ej: https://az.dominio.com
+    JAMENDO_ID: safeTrim(process.env.JAMENDO_CLIENT_ID) || "c230e1f4"
 };
 
-const AZURA_BASE = `${KEYS.AZURA_URL}/api/station/${KEYS.STATION_ID}`;
+const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
-// ======= 2. INICIALIZACIÓN =======
-const bot = new Telegraf(KEYS.TELEGRAM_TOKEN);
-const ytmusic = new YTMusic();
-const groq = new Groq({ apiKey: KEYS.GROQ });
-const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
-
+// ======= 2. TELEGRAM (SALUDOS Y PEDIDOS) =======
+const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
+let cancionRecienDescubierta = null;
 
-(async () => {
+bot.on('polling_error', () => {}); 
+
+bot.on('message', async (msg) => {
+    if (!msg.text) return;
+
+    if (msg.text.startsWith('/pedir ')) {
+        const busqueda = msg.text.replace('/pedir ', '').trim();
+        if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime el nombre de la canción! 🎵");
+
+        bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}"...`);
+        const track = await buscarMusicaJamendo(busqueda, true); 
+
+        if (track) {
+            const exito = await descargarYSubirAzura(track);
+            if (exito) {
+                ultimoSaludo = { 
+                    nombre: msg.from.first_name || "un oyente", 
+                    texto: `pidió la canción "${track.info}"`, 
+                    fecha: new Date() 
+                };
+                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Salomé la presentará pronto.`);
+            } else {
+                bot.sendMessage(msg.chat.id, `❌ Error al procesar el archivo.`);
+            }
+        } else {
+            bot.sendMessage(msg.chat.id, `❌ No encontré esa canción.`);
+        }
+        return;
+    }
+
+    if (msg.text === '/descubrir') {
+        bot.sendMessage(msg.chat.id, "🔎 Buscando un éxito rumbero...");
+        const track = await buscarMusicaJamendo('latin', false);
+        if (track) {
+            await descargarYSubirAzura(track);
+            cancionRecienDescubierta = track.info;
+            bot.sendMessage(msg.chat.id, `✅ ¡Nuevo estreno! "${track.info}".`);
+        }
+        return;
+    }
+
+    if (!msg.text.startsWith('/')) {
+        ultimoSaludo = {
+            nombre: msg.from.first_name || "un oyente",
+            texto: msg.text,
+            fecha: new Date()
+        };
+        bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo saldrá al aire. 🎙️");
+    }
+});
+
+// ======= 3. FUNCIONES DE APOYO =======
+
+async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
+    const generos = ['salsa', 'reggaeton', 'bachata', 'vallenato'];
+    
+    // 1. Añadimos 'vocalinstrumental=vocal' para filtrar solo canciones con voz
+    let baseParametros = `client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&durationbetween=120_600&vocalinstrumental=vocal`;
+    
+    let queryParam = esBusquedaEspecifica 
+        ? `search=${encodeURIComponent(query)}` 
+        : `fuzzytags=${generos[Math.floor(Math.random() * generos.length)]}&order=ratingdesc`;
+    
+    const url = `https://api.jamendo.com/v3.0/tracks/?${baseParametros}&${queryParam}`;
+
     try {
-        await ytmusic.initialize();
-        console.log("✅ YT Music inicializado");
+        const res = await axios.get(url, { timeout: 8000 });
+        if (res.data.results?.length > 0) {
+            const t = res.data.results[0];
+            
+            // Verificación extra: Jamendo a veces etiqueta mal, 
+            // pero con el parámetro anterior debería ser suficiente.
+            return { 
+                url: t.audio, 
+                info: `${t.name} de ${t.artist_name}` 
+            };
+        }
+    } catch (e) { 
+        return null; 
+    }
+}
+  
+        
+
+
+
+async function solicitarCancionEnAzura(mediaId) {
+    // El mediaId es el ID que AzuraCast le asigna a 'pedido_actual.mp3'
+    // Puedes encontrarlo en la lista de archivos de música.
+    try {
+        await axios.post(`${BASE_URL_API}/station/24/request/${mediaId}`, {}, {
+            headers: { "X-API-Key": KEYS.AZURA }
+        });
+        console.log("🚀 Canción enviada a la cola de reproducción.");
+    } catch (error) {
+        console.error("No se pudo forzar el pedido:", error.message);
+    }
+}
+
+async function descargarYSubirAzura(track) {
+    const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    const nombreArchivo = "pedido_actual.mp3";
+    // 1. IMPORTANTE: Quita el "./" y usa solo el nombre de la carpeta
+    const carpetaDestino = "Musica_Nueva"; 
+
+    try {
+        console.log(`📥 Descargando: ${track.info}`);
+        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
+        await pipeline(response.data, fs.createWriteStream(tempFile));
+
+        const form = new FormData();
+
+        // 2. ORDEN: El path siempre primero. 
+        // Probamos sin puntos ni barras para máxima compatibilidad.
+        form.append('path', carpetaDestino); 
+
+        // 3. LA CLAVE: En muchas versiones de AzuraCast, el 'filename' 
+        // debe incluir la ruta completa para forzar la ubicación.
+        const rutaRelativaCompleta = `${carpetaDestino}/${nombreArchivo}`;
+
+        form.append('file', fs.createReadStream(tempFile), { 
+            filename: rutaRelativaCompleta, // <-- Forzamos la ruta aquí
+            contentType: 'audio/mpeg'
+        });
+
+        console.log(`📤 Subiendo a: ${rutaRelativaCompleta}`);
+
+        await axios.post(AZURA_API_UPLOAD, form, { 
+            headers: { 
+                ...form.getHeaders(), 
+                "X-API-Key": KEYS.AZURA 
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            timeout: 120000 
+        });
+
+        console.log(`✅ ¡Éxito! Archivo ubicado en ${rutaRelativaCompleta}`);
+        
+        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        return true;
+
     } catch (err) {
-        console.error("❌ Error YT Music:", err);
+        // Log detallado para ver qué dice el servidor exactamente
+        console.error("❌ Error Azura:", err.response?.data || err.message);
+        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        return false;
     }
-})();
-
-// ======= 3. FUNCIONES DE APOYO (AUDIO Y SUBIDA) =======
-
-async function descargarCancion(videoId) {
-    const outputPath = path.join(__dirname, `temp_${videoId}.mp3`);
-    const cookiePath = path.join(__dirname, 'cookies.txt'); // <--- Asegúrate que el archivo esté aquí
-
-    const options = {
-        extractAudio: true,
-        audioFormat: 'mp3',
-        output: outputPath,
-        format: 'bestaudio/best',
-    };
-
-    // Si el archivo de cookies existe, lo usamos para evitar el bloqueo
-    if (fs.existsSync(cookiePath)) {
-        options.addHeader = `Cookie:${fs.readFileSync(cookiePath, 'utf8')}`;
-        // O dependiendo de tu versión de youtube-dl-exec:
-        options.cookies = cookiePath;
-    }
-
-    await ytExec(`https://www.youtube.com/watch?v=${videoId}`, options);
-    return outputPath;
 }
-
-async function uploadToAzuraCast(filePath, fileName) {
-    const form = new FormData();
-    form.append('file', fs.createReadStream(filePath), fileName);
-    // Para archivos de música normales
-    await axios.post(`${AZURA_BASE}/files`, form, {
-        headers: { ...form.getHeaders(), 'X-API-Key': KEYS.AZURA_KEY }
-    });
-}
-
-// ======= 4. LÓGICA DEL BOT DE TELEGRAM =======
-
-bot.command('pedir', async (ctx) => {
-    const query = ctx.payload;
-    const nombreOyente = ctx.from.first_name || "un oyente";
-    if (!query) return ctx.reply("🎙️ ¿Qué canción quieres? Ej: /pedir La Bachata");
-
-    let statusMsg = await ctx.reply('🔍 Buscando en YouTube Music...');
-    try {
-        const resultados = await ytmusic.searchSongs(query);
-        if (resultados.length === 0) return ctx.reply('No encontré esa canción.');
-
-        const cancion = resultados[0];
-        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, `⏳ Descargando: ${cancion.name}...`);
-        
-        const ruta = await descargarCancion(cancion.videoId);
-        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '🚀 Subiendo a la radio...');
-        
-        await uploadToAzuraCast(ruta, `${cancion.name}.mp3`);
-        ultimoSaludo = { nombre: nombreOyente, texto: `pidió ${cancion.name}`, fecha: new Date() };
-        
-        if (fs.existsSync(ruta)) fs.unlinkSync(ruta);
-        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, `✅ ¡${cancion.name} subida! Salomé la presentará.`);
-    } catch (e) {
-        ctx.reply("❌ Error procesando el pedido.");
-    }
-});
-
-bot.on('text', async (ctx) => {
-    if (ctx.message.text.startsWith('/')) return;
-    const nombreOyente = ctx.from.first_name || "un oyente";
-    ultimoSaludo = { nombre: nombreOyente, texto: ctx.message.text, fecha: new Date() };
-    await ctx.reply(`¡Hola ${nombreOyente}! Salomé recibió tu mensaje. 🎙️`);
-});
-
-// ======= 5. INTELIGENCIA ARTIFICIAL Y VOZ =======
 
 async function obtenerAhoraSuena() {
     try {
@@ -131,15 +195,42 @@ async function obtenerAhoraSuena() {
     } catch (e) { return { artista: "varios", titulo: "tu música favorita" }; }
 }
 
+async function obtenerNoticiasBBC() {
+    try {
+        const res = await axios.get("https://feeds.bbci.co.uk/mundo/rss.xml", { timeout: 5000 });
+        const matches = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
+        if (matches && matches.length > 2) {
+            return matches[1].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').trim();
+        }
+        return "El mundo sigue vibrando.";
+    } catch (e) { return "Sigue en sintonía."; }
+}
+
+function limpiarTexto(t) {
+    if (!t) return "";
+    return t.replace(/[*#_~]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:|Salomé:/gi, '').trim();
+}
+
+// ======= 4. INTELIGENCIA ARTIFICIAL =======
+
 async function redactarIA(prompt) {
     try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
         const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 10000 });
-        return res.data?.candidates?.[0]?.content?.parts?.[0]?.text.replace(/[*#_~]/g, '').trim();
+        const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (texto) return limpiarTexto(texto);
     } catch (e) {
-        return "Sintonizas La Fronterísima, la radio que rompe fronteras.";
+        try {
+            const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+                model: "llama-3.1-8b-instant",
+                messages: [{ role: "system", content: "Locutora colombiana rumbera de Cali." }, { role: "user", content: prompt }]
+            }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
+            return limpiarTexto(res.data?.choices?.[0]?.message?.content);
+        } catch (err) { return "Sintonizas La Fronterísima, notas surcando fronteras."; }
     }
 }
+
+// ======= 5. VOZ Y PRODUCCIÓN =======
 
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
@@ -149,6 +240,7 @@ async function generarVoz(texto, archivoDestino) {
         const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
             <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.4" xmlns:mstts="https://www.w3.org/2001/mstts">
             <prosody rate="+8%">${texto}</prosody></mstts:express-as></voice></speak>`;
+        
         synth.speakSsmlAsync(ssml, r => {
             if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
                 fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
@@ -170,7 +262,8 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
             try {
                 const form = new FormData();
                 form.append('file', fs.createReadStream(tempSalida), { filename: nombreFinal });
-                await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA_KEY } });
+                form.append('path', nombreFinal);
+                await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, timeout: 60000 });
                 [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
                 resolve();
             } catch (e) { resolve(); }
@@ -183,6 +276,7 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 async function autoReporte() {
     try {
         const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
+        const bbc = await obtenerNoticiasBBC();
         const np = await obtenerAhoraSuena();
         const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
         
@@ -191,29 +285,65 @@ async function autoReporte() {
             extras += ` SALUDO: ${ultimoSaludo.nombre} dice ${ultimoSaludo.texto}.`;
         }
 
-        const prompt = `Salomé de La Fronterísima Cali. Hora: ${hora}. Música actual: ${np.titulo}. Temperatura: ${Math.round(clim.data.current_weather.temperature)}°C. ${extras} Haz una intervención alegre de 40 palabras.`;
+        const prompt = `Salomé de La Fronterísima Cali. Hora: ${hora}. Música: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. Noticias: ${bbc}. ${extras} Guion rumbero de 50 palabras.`;
         const guion = await redactarIA(prompt);
         const pathVoz = `v_auto_${Date.now()}.mp3`;
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "dj_auto.mp3", true);
         ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 actualizado.");
+        console.log("✅ dj_auto.mp3 (15 min) actualizado.");
     } catch (e) { console.error("Error AutoReporte:", e.message); }
 }
 
-// ======= 7. ARRANQUE DEL SERVIDOR =======
+async function autoRedactorIA() {
+    try {
+        const temas = ["un mensaje positivo", "una efeméride musical", "un dato curioso de Cali", "historia de un artista de salsa"];
+        const tema = temas[Math.floor(Math.random() * temas.length)];
+        const prompt = `Salomé de La Fronterísima. Redacta 40 palabras sobre ${tema}. Muy alegre. Termina: Notas surcando fronteras.`;
+        const guion = await redactarIA(prompt);
+        const pathVoz = `v_red_${Date.now()}.mp3`;
+        await generarVoz(guion, pathVoz);
+        await producirYSubir(pathVoz, "Redactor_ia.mp3", true);
+        console.log("✅ Redactor_ia.mp3 (50 min) actualizado.");
+    } catch (e) { console.error("Error AutoRedactor:", e.message); }
+}
 
+// ======= 7. RUTAS API =======
+
+app.post("/redactar-guion", async (req, res) => {
+    try {
+        const promptManual = `Salomé de La Fronterísima. Guion alegre sobre: ${req.body.idea}. Máximo 40 palabras.`;
+        const textoIa = await redactarIA(promptManual);
+        res.json({ guion: textoIa }); 
+    } catch (e) { res.json({ guion: "¡Sintonizas La Fronterísima!" }); }
+});
+
+app.post("/procesar-locucion", async (req, res) => {
+    const pathVoz = `v_man_${Date.now()}.mp3`;
+    try {
+        await generarVoz(req.body.texto, pathVoz);
+        await producirYSubir(pathVoz, "Redactor_ia.mp3", req.body.conFondo);
+        res.send("OK");
+    } catch (e) { res.status(500).send("Error"); }
+});
+
+app.post('/login', (req, res) => {
+    if (req.body.password === KEYS.PASSWORD) res.json({ success: true });
+    else res.status(401).json({ success: false });
+});
+
+app.get("/health", (req, res) => res.sendStatus(200));
+
+// ======= 8. INICIO DEL SERVIDOR =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
-    bot.launch();
     
-    // Intervalos
-    setInterval(autoReporte, 14 * 60 * 1000); // Cada 15 min
-    setTimeout(autoReporte, 5000); // Primer reporte al iniciar
+    // Reporte de clima/noticias cada 15 minutos
+    setTimeout(autoReporte, 5000);
+    setInterval(autoReporte, 15 * 60 * 1000);
+
+    // Contenido variado (Redactor_ia) cada 50 minutos
+    setTimeout(autoRedactorIA, 20000); 
+    setInterval(autoRedactorIA, 50 * 60 * 1000);
 });
-
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
-
-
