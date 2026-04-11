@@ -278,14 +278,18 @@ app.get("/health", (req, res) => res.sendStatus(200));
 
 // ======= 8. INICIO DEL SERVIDOR =======
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
-    
-    // Reporte de clima/noticias cada 15 minutos
-    setTimeout(autoReporte, 5000);
-    setInterval(autoReporte, 15 * 60 * 1000);
 
-    // Contenido variado (Redactor_ia) cada 50 minutos
-    setTimeout(autoRedactorIA, 20000); 
+async function iniciarSistema() {
+    await bot.deleteWebHook({ drop_pending_updates: true });
+    setTimeout(() => {
+        bot.startPolling();
+        console.log("✅ Salomé escuchando en Telegram.");
+    }, 5000);
+}
+
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 Puerto ${PORT}`);
+    iniciarSistema();
+    setInterval(autoReporte, 15 * 60 * 1000);
     setInterval(autoRedactorIA, 50 * 60 * 1000);
 });
