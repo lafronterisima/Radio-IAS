@@ -15,9 +15,15 @@ const { pipeline } = require('stream/promises');
 const YTMusic = require("ytmusic-api");
 const ytmusic = new YTMusic();
 
+app.get('/', (req, res) => res.send('Bot de Radio Online 🎙️'));
+app.listen(process.env.PORT || 8080);
 
 const app = express();
 app.use(express.json());
+
+app.get('/', (req, res) => res.send('Bot de Radio Online 🎙️'));
+app.listen(process.env.PORT || 8080);
+
 app.use(express.static(path.join(__dirname, "public")));
 
 // ======= 1. CONFIGURACIÓN =======
@@ -425,3 +431,5 @@ app.listen(PORT, "0.0.0.0", () => {
     setInterval(autoReporte, 15 * 60 * 1000);
     setInterval(autoRedactorIA, 50 * 60 * 1000);
 });
+
+
