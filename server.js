@@ -9,15 +9,13 @@ const ytdl = require('@distube/ytdl-core');
 const { Groq } = require('groq-sdk');
 const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
-
-// 1. IMPORTANTE: Definir el SDK de Azure que faltaba
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// ======= CONFIGURACIÓN DE CLAVES =======
+// ======= 1. CONFIGURACIÓN DE CLAVES =======
 const safeTrim = (val) => val ? val.trim() : "";
 const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
 
@@ -31,19 +29,24 @@ const KEYS = {
     AZURE_REGION: safeTrim(process.env.AZURE_REGION)
 };
 
+// --- VALIDACIÓN CRÍTICA DE AZURE ---
+if (!KEYS.AZURE_KEY || !KEYS.AZURE_REGION) {
+    console.error("❌ ERROR: Faltan llaves de Azure (AZURE_SPEECH_KEY o AZURE_REGION) en el .env");
+}
+
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
-// ======= INICIALIZACIÓN =======
+// ======= 2. INICIALIZACIÓN =======
 const groq = new Groq({ apiKey: KEYS.GROQ });
 const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
 
-// Precaución: Solo una instancia de polling activa
+// Una sola instancia. Si da error 409, cierra todas las terminales y abre solo una.
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 
-// ======= FUNCIONES DE APOYO =======
+// ======= 3. FUNCIONES DE APOYO =======
 
 function limpiarNombreArchivo(texto) {
     return texto
@@ -77,7 +80,6 @@ async function buscarMusicaYouTube(query) {
 }
 
 async function descargarYSubirAzura(video) {
-    // 1. Definición de rutas y nombres
     const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
     const carpetaDestino = "Musica_Nueva"; 
     const nombreArchivo = `pedido_${Date.now()}.mp3`;
@@ -87,7 +89,6 @@ async function descargarYSubirAzura(video) {
     try {
         console.log(`📥 Descargando de YT: ${video.title}`);
 
-        // 2. Verificación de Cookies para evitar bloqueo "Sign in to confirm..."
         let requestOptions = {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -97,11 +98,8 @@ async function descargarYSubirAzura(video) {
         if (fs.existsSync(cookiesPath)) {
             console.log("🍪 Usando cookies.txt para la descarga.");
             requestOptions.headers.cookie = fs.readFileSync(cookiesPath, 'utf8');
-        } else {
-            console.warn("⚠️ No se encontró cookies.txt, la descarga podría fallar.");
         }
 
-        // 3. Descarga efectiva desde YouTube
         await pipeline(
             ytdl(video.url, { 
                 filter: 'audioonly', 
@@ -111,23 +109,15 @@ async function descargarYSubirAzura(video) {
             fs.createWriteStream(tempFile)
         );
 
-        console.log(`✅ Descarga local lista: ${tempFile}`);
-
-        // 4. Preparación del Formulario para AzuraCast
         const form = new FormData();
-        
-        // El path siempre primero
         form.append('path', carpetaDestino); 
-
-        // Agregamos el archivo forzando la ruta completa en el filename
         form.append('file', fs.createReadStream(tempFile), { 
             filename: rutaRelativaCompleta, 
             contentType: 'audio/mpeg'
         });
 
-        console.log(`📤 Subiendo a AzuraCast en: ${rutaRelativaCompleta}`);
+        console.log(`📤 Subiendo a AzuraCast...`);
 
-        // 5. Envío mediante Axios a la API de Azura
         await axios.post(AZURA_API_UPLOAD, form, { 
             headers: { 
                 ...form.getHeaders(), 
@@ -135,63 +125,45 @@ async function descargarYSubirAzura(video) {
             },
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
-            timeout: 180000 // 3 minutos
+            timeout: 180000 
         });
 
-        console.log(`✅ ¡Éxito! Canción disponible en la radio.`);
+        console.log(`✅ ¡Éxito!`);
         return true;
 
     } catch (err) {
-        // Log detallado para detectar si el fallo es YouTube o Azura
         console.error("❌ Error en el proceso:", err.response?.data || err.message);
         return false;
     } finally {
-        // Limpieza del archivo temporal (muy importante en Windows)
         if (fs.existsSync(tempFile)) {
-            try {
-                fs.unlinkSync(tempFile);
-                console.log("🗑️ Archivo temporal eliminado.");
-            } catch (e) {
-                console.error("No se pudo eliminar el temporal:", e.message);
-            }
+            try { fs.unlinkSync(tempFile); } catch (e) {}
         }
     }
 }
 
-// ======= LÓGICA DE TELEGRAM =======
+// ======= 4. LÓGICA DE TELEGRAM =======
 
 bot.on('message', async (msg) => {
-    if (!msg.text) return;
-    const chatId = msg.chat.id;
-    const nombreOyente = msg.from.first_name || "un oyente";
-
-    if (msg.text.startsWith('/pedir ')) {
-        const busqueda = msg.text.replace('/pedir ', '').trim();
-        if (busqueda.length < 3) return bot.sendMessage(chatId, "⚠️ El nombre es muy corto.");
-
-        bot.sendMessage(chatId, `🔎 Buscando "${busqueda}" en YouTube...`);
-        const video = await buscarMusicaYouTube(busqueda);
-        
-        if (video) {
-            bot.sendMessage(chatId, `⏳ Encontrada: "${video.title}". Descargando audio...`);
-            const exito = await descargarYSubirAzura(video);
-            
-            if (exito) {
-                ultimoSaludo = { nombre: nombreOyente, texto: `pidió ${video.title}`, fecha: new Date() };
-                bot.sendMessage(chatId, `✅ **¡Hecho!**\n🎶 "${video.title}" ya está en la radio.\n\nSalomé la presentará en breve.`);
-            } else {
-                bot.sendMessage(chatId, "❌ No pude subir el archivo. Posible bloqueo de YouTube o error en AzuraCast.");
+    if (!msg.text || msg.text.startsWith('/')) {
+        // Manejar comandos específicos aquí si es necesario
+        if (msg.text?.startsWith('/pedir ')) {
+            const busqueda = msg.text.replace('/pedir ', '').trim();
+            const video = await buscarMusicaYouTube(busqueda);
+            if (video) {
+                bot.sendMessage(msg.chat.id, `⏳ Procesando: ${video.title}`);
+                await descargarYSubirAzura(video);
             }
-        } else {
-            bot.sendMessage(chatId, "❌ No encontré resultados.");
         }
         return;
     }
 
-    if (!msg.text.startsWith('/')) {
-        ultimoSaludo = { nombre: nombreOyente, texto: msg.text, fecha: new Date() };
-        bot.sendMessage(chatId, `¡Hola ${nombreOyente}! Mensaje recibido. Salomé lo leerá pronto. 🎙️`);
-    }
+    // Guardar para que Salomé lo use
+    ultimoSaludo = { 
+        nombre: msg.from.first_name || "Oyente", 
+        texto: msg.text, 
+        fecha: new Date() 
+    };
+    bot.sendMessage(msg.chat.id, "🎙️ ¡Recibido! Salomé te enviará un saludo pronto.");
 });
 
 
