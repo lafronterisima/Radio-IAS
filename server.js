@@ -57,12 +57,23 @@ let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 
 async function descargarCancion(videoId) {
     const outputPath = path.join(__dirname, `temp_${videoId}.mp3`);
-    await ytExec(`https://www.youtube.com/watch?v=${videoId}`, {
+    const cookiePath = path.join(__dirname, 'cookies.txt'); // <--- Asegúrate que el archivo esté aquí
+
+    const options = {
         extractAudio: true,
         audioFormat: 'mp3',
         output: outputPath,
         format: 'bestaudio/best',
-    });
+    };
+
+    // Si el archivo de cookies existe, lo usamos para evitar el bloqueo
+    if (fs.existsSync(cookiePath)) {
+        options.addHeader = `Cookie:${fs.readFileSync(cookiePath, 'utf8')}`;
+        // O dependiendo de tu versión de youtube-dl-exec:
+        options.cookies = cookiePath;
+    }
+
+    await ytExec(`https://www.youtube.com/watch?v=${videoId}`, options);
     return outputPath;
 }
 
