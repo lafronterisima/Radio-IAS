@@ -1,11 +1,12 @@
 require('dotenv').config();
 const express = require("express");
+const { google } = require('googleapis');
 const axios = require("axios");
-const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
-const FormData = require("form-data");
-const { exec } = require("child_process");
 const path = require("path");
+const FormData = require("form-data");
+const ytdl = require('@distube/ytdl-core');
+const { Groq } = require('groq-sdk');
 const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
 
@@ -24,110 +25,109 @@ const KEYS = {
     AZURE_REGION: safeTrim(process.env.AZURE_REGION),
     AZURA: safeTrim(process.env.AZURA_KEY),
     STATION_ID: sID,
-    PASSWORD: safeTrim(process.env.APP_PASSWORD),
     TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN),
-    JAMENDO_ID: safeTrim(process.env.JAMENDO_CLIENT_ID) || "c230e1f4"
+    YOUTUBE: safeTrim(process.env.YOUTUBE_KEY)
 };
 
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
-// ======= 2. TELEGRAM (SALUDOS Y PEDIDOS) =======
+// ======= 2. INICIALIZACIÓN =======
+const groq = new Groq({ apiKey: KEYS.GROQ });
+const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
+
+// IMPORTANTE: polling en true para recibir mensajes
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
+
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
-let cancionRecienDescubierta = null;
 
-bot.on('polling_error', () => {}); 
+// ======= 3. FUNCIONES DE APOYO (YOUTUBE) =======
 
-bot.on('message', async (msg) => {
-    if (!msg.text) return;
-
-    if (msg.text.startsWith('/pedir ')) {
-        const busqueda = msg.text.replace('/pedir ', '').trim();
-        if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime el nombre de la canción! 🎵");
-
-        bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}"...`);
-        const track = await buscarMusicaJamendo(busqueda, true); 
-
-        if (track) {
-            const exito = await descargarYSubirAzura(track);
-            if (exito) {
-                ultimoSaludo = { 
-                    nombre: msg.from.first_name || "un oyente", 
-                    texto: `pidió la canción "${track.info}"`, 
-                    fecha: new Date() 
-                };
-                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Salomé la presentará pronto.`);
-            } else {
-                bot.sendMessage(msg.chat.id, `❌ Error al procesar el archivo.`);
-            }
-        } else {
-            bot.sendMessage(msg.chat.id, `❌ No encontré esa canción.`);
-        }
-        return;
-    }
-
-    if (msg.text === '/descubrir') {
-        bot.sendMessage(msg.chat.id, "🔎 Buscando un éxito rumbero...");
-        const track = await buscarMusicaJamendo('latin', false);
-        if (track) {
-            await descargarYSubirAzura(track);
-            cancionRecienDescubierta = track.info;
-            bot.sendMessage(msg.chat.id, `✅ ¡Nuevo estreno! "${track.info}".`);
-        }
-        return;
-    }
-
-    if (!msg.text.startsWith('/')) {
-        ultimoSaludo = {
-            nombre: msg.from.first_name || "un oyente",
-            texto: msg.text,
-            fecha: new Date()
-        };
-        bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo saldrá al aire. 🎙️");
-    }
-});
-
-// ======= 3. FUNCIONES DE APOYO =======
-
-async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
-    const generos = ['salsa', 'reggaeton', 'bachata', 'vallenato'];
-    
-    // 1. Añadimos 'vocalinstrumental=vocal' para filtrar solo canciones con voz
-    let baseParametros = `client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&durationbetween=120_600&vocalinstrumental=vocal`;
-    
-    let queryParam = esBusquedaEspecifica 
-        ? `search=${encodeURIComponent(query)}` 
-        : `fuzzytags=${generos[Math.floor(Math.random() * generos.length)]}&order=ratingdesc`;
-    
-    const url = `https://api.jamendo.com/v3.0/tracks/?${baseParametros}&${queryParam}`;
-
+async function buscarMusicaYouTube(query) {
     try {
-        const res = await axios.get(url, { timeout: 8000 });
-        if (res.data.results?.length > 0) {
-            const t = res.data.results[0];
-            
-            // Verificación extra: Jamendo a veces etiqueta mal, 
-            // pero con el parámetro anterior debería ser suficiente.
-            return { 
-                url: t.audio, 
-                info: `${t.name} de ${t.artist_name}` 
-            };
-        }
+        if (!KEYS.YOUTUBE) throw new Error("Falta YOUTUBE_KEY");
+        const res = await youtube.search.list({
+            part: 'snippet',
+            q: `${query} official audio`,
+            maxResults: 1,
+            type: 'video',
+            videoCategoryId: '10' 
+        });
+        
+        if (!res.data.items || res.data.items.length === 0) return null;
+        
+        const item = res.data.items[0];
+        return { 
+            id: item.id.videoId, 
+            title: item.snippet.title, 
+            url: `https://www.youtube.com/watch?v=${item.id.videoId}` 
+        };
     } catch (e) { 
+        console.error("❌ Error YouTube:", e.message);
         return null; 
     }
 }
-  
-        
 
+async function descargarYSubirAzura(video) {
+    // Usamos un nombre de archivo limpio basado en el ID de video para evitar conflictos
+    const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
+    const carpetaDestino = "Musica_Nueva"; 
+    const nombreFinal = `pedido_${Date.now()}.mp3`;
 
-
-async function solicitarCancionEnAzura(mediaId) {
-    // El mediaId es el ID que AzuraCast le asigna a 'pedido_actual.mp3'
-    // Puedes encontrarlo en la lista de archivos de música.
     try {
-        await axios.post(`${BASE_URL_API}/station/24/request/${mediaId}`, {}, {
+        console.log(`📥 Descargando de YT: ${video.title}`);
+        
+        // 1. Descarga el audio de YouTube
+        await pipeline(
+            ytdl(video.url, { 
+                filter: 'audioonly', 
+                quality: 'highestaudio' 
+            }),
+            fs.createWriteStream(tempFile)
+        );
+
+        console.log(`✅ Descarga lista. Preparando subida a AzuraCast...`);
+
+        // 2. Prepara el formulario de subida
+        const form = new FormData();
+        form.append('path', carpetaDestino); 
+        
+        // Forzamos la ruta completa en el filename para asegurar la ubicación
+        const rutaRelativaCompleta = `${carpetaDestino}/${nombreFinal}`;
+
+        form.append('file', fs.createReadStream(tempFile), { 
+            filename: rutaRelativaCompleta,
+            contentType: 'audio/mpeg'
+        });
+
+        // 3. Envía a AzuraCast
+        await axios.post(AZURA_API_UPLOAD, form, { 
+            headers: { 
+                ...form.getHeaders(), 
+                "X-API-Key": KEYS.AZURA 
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            timeout: 180000 // 3 minutos
+        });
+
+        console.log(`✅ ¡Éxito! Canción ubicada en: ${rutaRelativaCompleta}`);
+        return true;
+
+    } catch (err) {
+        console.error("❌ Error Proceso:", err.response?.data || err.message);
+        return false;
+    } finally {
+        if (fs.existsSync(tempFile)) {
+            try { fs.unlinkSync(tempFile); } catch (e) {}
+        }
+    }
+}
+
+// Opcional: Para forzar la reproducción (requiere conocer el Media ID)
+async function solicitarCancionEnAzura(mediaId) {
+    try {
+        await axios.post(`${AZURA_BASE}/request/${mediaId}`, {}, {
             headers: { "X-API-Key": KEYS.AZURA }
         });
         console.log("🚀 Canción enviada a la cola de reproducción.");
@@ -136,56 +136,48 @@ async function solicitarCancionEnAzura(mediaId) {
     }
 }
 
-async function descargarYSubirAzura(track) {
-    const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    const nombreArchivo = "pedido_actual.mp3";
-    // 1. IMPORTANTE: Quita el "./" y usa solo el nombre de la carpeta
-    const carpetaDestino = "Musica_Nueva"; 
+// ======= 4. LÓGICA DE TELEGRAM =======
 
-    try {
-        console.log(`📥 Descargando: ${track.info}`);
-        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
-        await pipeline(response.data, fs.createWriteStream(tempFile));
+bot.on('message', async (msg) => {
+    if (!msg.text) return;
 
-        const form = new FormData();
+    const chatId = msg.chat.id;
+    const nombreOyente = msg.from.first_name || "un oyente";
 
-        // 2. ORDEN: El path siempre primero. 
-        // Probamos sin puntos ni barras para máxima compatibilidad.
-        form.append('path', carpetaDestino); 
-
-        // 3. LA CLAVE: En muchas versiones de AzuraCast, el 'filename' 
-        // debe incluir la ruta completa para forzar la ubicación.
-        const rutaRelativaCompleta = `${carpetaDestino}/${nombreArchivo}`;
-
-        form.append('file', fs.createReadStream(tempFile), { 
-            filename: rutaRelativaCompleta, // <-- Forzamos la ruta aquí
-            contentType: 'audio/mpeg'
-        });
-
-        console.log(`📤 Subiendo a: ${rutaRelativaCompleta}`);
-
-        await axios.post(AZURA_API_UPLOAD, form, { 
-            headers: { 
-                ...form.getHeaders(), 
-                "X-API-Key": KEYS.AZURA 
-            },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            timeout: 120000 
-        });
-
-        console.log(`✅ ¡Éxito! Archivo ubicado en ${rutaRelativaCompleta}`);
+    if (msg.text.startsWith('/pedir ')) {
+        const busqueda = msg.text.replace('/pedir ', '').trim();
         
-        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        return true;
+        if (busqueda.length < 3) {
+            return bot.sendMessage(chatId, "⚠️ El nombre es muy corto.");
+        }
 
-    } catch (err) {
-        // Log detallado para ver qué dice el servidor exactamente
-        console.error("❌ Error Azura:", err.response?.data || err.message);
-        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        return false;
+        bot.sendMessage(chatId, `🔎 Buscando "${busqueda}"...`);
+        
+        const video = await buscarMusicaYouTube(busqueda);
+        
+        if (video) {
+            bot.sendMessage(chatId, `⏳ Encontrada: "${video.title}". Procesando...`);
+            const exito = await descargarYSubirAzura(video);
+            
+            if (exito) {
+                ultimoSaludo = { nombre: nombreOyente, texto: `pidió ${video.title}`, fecha: new Date() };
+                bot.sendMessage(chatId, `✅ **¡Listo!**\n🎶 "${video.title}" ya está en la radio.\n\nSalomé la presentará en breve.`);
+            } else {
+                bot.sendMessage(chatId, "❌ Hubo un error al subir el archivo a la radio.");
+            }
+        } else {
+            bot.sendMessage(chatId, "❌ No encontré esa canción en YouTube.");
+        }
+        return;
     }
-}
+
+    if (!msg.text.startsWith('/')) {
+        ultimoSaludo = { nombre: nombreOyente, texto: msg.text, fecha: new Date() };
+        bot.sendMessage(chatId, `¡Mensaje recibido, ${nombreOyente}! Lo pasaremos al aire pronto. 🎙️`);
+    }
+});
+
+
 
 async function obtenerAhoraSuena() {
     try {
