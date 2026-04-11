@@ -8,6 +8,8 @@ const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
 const ffmpeg = require('fluent-ffmpeg');
 
+const ytdl = require('@distube/ytdl-core');
+
 // 1. CORRECCIÓN: SDK de Azure definido para AutoRedactor
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
 
@@ -57,57 +59,60 @@ async function descargarYSubirAzura(video) {
     const nombreFinal = `pedido_${Date.now()}.mp3`;
 
     try {
-        console.log(`🎙️ Intentando extraer stream de: ${video.title}`);
+        console.log(`🎙️ Extrayendo stream real de: ${video.title}`);
 
+        // 1. Usamos ytdl para obtener el audio puro
         await new Promise((resolve, reject) => {
-            // Intentamos forzar a FFmpeg a buscar el stream de video real
-            ffmpeg(video.url)
-                .inputOptions([
-                    '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-                    '-reconnect', '1',
-                    '-reconnect_streamed', '1',
-                    '-reconnect_delay_max', '5'
-                ])
-                .noVideo() // Ignoramos el video para ahorrar recursos
-                .audioCodec('libmp3lame')
+            const stream = ytdl(video.url, {
+                filter: 'audioonly',
+                quality: 'highestaudio'
+            });
+
+            ffmpeg(stream)
                 .audioBitrate(192)
-                .on('start', (cmd) => console.log("⚙️ Procesando con FFmpeg..."))
-                .on('error', (err) => reject(err))
-                .on('end', () => resolve())
+                .toFormat('mp3')
+                .on('error', (err) => {
+                    console.error("❌ Error en conversión FFmpeg:", err.message);
+                    reject(err);
+                })
+                .on('end', () => {
+                    console.log("✅ MP3 generado con éxito.");
+                    resolve();
+                })
                 .save(tempFile);
         });
 
-        // Verificación de archivo
-        if (!fs.existsSync(tempFile) || fs.statSync(tempFile).size < 1000) {
-            throw new Error("El archivo MP3 está vacío o es inválido.");
-        }
-
+        // 2. Subida a AzuraCast (Carpeta Raíz)
         console.log(`📤 Subiendo a la raíz de AzuraCast...`);
-
         const form = new FormData();
-        form.append('path', ''); 
+        form.append('path', ''); // Vacío = Raíz
         form.append('file', fs.createReadStream(tempFile), {
             filename: nombreFinal,
             contentType: 'audio/mpeg'
         });
 
         await axios.post(AZURA_API_UPLOAD, form, {
-            headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
+            headers: {
+                ...form.getHeaders(),
+                "X-API-Key": KEYS.AZURA
+            },
             maxContentLength: Infinity,
             maxBodyLength: Infinity
         });
 
-        console.log(`✅ ¡Éxito! Canción subida a la raíz.`);
+        console.log(`🚀 ¡Canción en la radio!`);
         return true;
 
     } catch (err) {
         console.error("❌ Error Crítico:", err.message);
-        // Si sigue fallando el stream, es que el hosting bloquea el scraping
         return false;
     } finally {
-        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        if (fs.existsSync(tempFile)) {
+            try { fs.unlinkSync(tempFile); } catch (e) {}
+        }
     }
 }
+
 
 // ======= LÓGICA DE TELEGRAM =======
 
