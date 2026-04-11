@@ -33,15 +33,23 @@ const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
 // ======= 2. INICIALIZACIÓN =======
+// ======= 2. INICIALIZACIÓN =======
 const groq = new Groq({ apiKey: KEYS.GROQ });
 const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
-
-// IMPORTANTE: polling en true para recibir mensajes
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 
-// ======= 3. FUNCIONES DE APOYO (YOUTUBE) =======
+// ======= 3. FUNCIONES DE APOYO =======
+
+// Limpia el nombre del archivo para evitar errores en el servidor
+function limpiarNombreArchivo(texto) {
+    return texto
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Quita acentos
+        .replace(/[^a-zA-Z0-9]/g, "_")   // Reemplaza todo lo que no sea letra o número por _
+        .substring(0, 50);               // Limita longitud
+}
 
 async function buscarMusicaYouTube(query) {
     try {
@@ -69,30 +77,29 @@ async function buscarMusicaYouTube(query) {
 }
 
 async function descargarYSubirAzura(video) {
-    // Usamos un nombre de archivo limpio basado en el ID de video para evitar conflictos
     const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
     const carpetaDestino = "Musica_Nueva"; 
-    const nombreFinal = `pedido_${Date.now()}.mp3`;
+    const nombreLimpio = limpiarNombreArchivo(video.title);
+    const nombreFinal = `pedido_${Date.now()}_${nombreLimpio}.mp3`;
 
     try {
-        console.log(`📥 Descargando de YT: ${video.title}`);
+        console.log(`📥 Descargando audio: ${video.title}`);
         
-        // 1. Descarga el audio de YouTube
         await pipeline(
             ytdl(video.url, { 
                 filter: 'audioonly', 
-                quality: 'highestaudio' 
+                quality: 'highestaudio',
+                highWaterMark: 1 << 25 // Buffer más grande para evitar cortes
             }),
             fs.createWriteStream(tempFile)
         );
 
-        console.log(`✅ Descarga lista. Preparando subida a AzuraCast...`);
+        console.log(`✅ Archivo descargado. Iniciando subida...`);
 
-        // 2. Prepara el formulario de subida
         const form = new FormData();
         form.append('path', carpetaDestino); 
         
-        // Forzamos la ruta completa en el filename para asegurar la ubicación
+        // Es vital que el filename incluya la carpeta destino para forzar la ruta
         const rutaRelativaCompleta = `${carpetaDestino}/${nombreFinal}`;
 
         form.append('file', fs.createReadStream(tempFile), { 
@@ -100,39 +107,27 @@ async function descargarYSubirAzura(video) {
             contentType: 'audio/mpeg'
         });
 
-        // 3. Envía a AzuraCast
-        await axios.post(AZURA_API_UPLOAD, form, { 
+        const respuesta = await axios.post(AZURA_API_UPLOAD, form, { 
             headers: { 
                 ...form.getHeaders(), 
                 "X-API-Key": KEYS.AZURA 
             },
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
-            timeout: 180000 // 3 minutos
+            timeout: 600000 // 10 minutos
         });
 
-        console.log(`✅ ¡Éxito! Canción ubicada en: ${rutaRelativaCompleta}`);
+        console.log(`🚀 AzuraCast respondió:`, respuesta.data.success ? "Éxito" : "Error");
         return true;
 
     } catch (err) {
-        console.error("❌ Error Proceso:", err.response?.data || err.message);
+        console.error("❌ Error en AzuraCast:", err.response?.data || err.message);
         return false;
     } finally {
+        // Borramos siempre el temporal para no llenar el escritorio
         if (fs.existsSync(tempFile)) {
-            try { fs.unlinkSync(tempFile); } catch (e) {}
+            try { fs.unlinkSync(tempFile); } catch (e) { console.log("Error borrando tmp"); }
         }
-    }
-}
-
-// Opcional: Para forzar la reproducción (requiere conocer el Media ID)
-async function solicitarCancionEnAzura(mediaId) {
-    try {
-        await axios.post(`${AZURA_BASE}/request/${mediaId}`, {}, {
-            headers: { "X-API-Key": KEYS.AZURA }
-        });
-        console.log("🚀 Canción enviada a la cola de reproducción.");
-    } catch (error) {
-        console.error("No se pudo forzar el pedido:", error.message);
     }
 }
 
@@ -148,7 +143,7 @@ bot.on('message', async (msg) => {
         const busqueda = msg.text.replace('/pedir ', '').trim();
         
         if (busqueda.length < 3) {
-            return bot.sendMessage(chatId, "⚠️ El nombre es muy corto.");
+            return bot.sendMessage(chatId, "⚠️ El nombre de la canción es muy corto.");
         }
 
         bot.sendMessage(chatId, `🔎 Buscando "${busqueda}"...`);
@@ -156,27 +151,27 @@ bot.on('message', async (msg) => {
         const video = await buscarMusicaYouTube(busqueda);
         
         if (video) {
-            bot.sendMessage(chatId, `⏳ Encontrada: "${video.title}". Procesando...`);
+            bot.sendMessage(chatId, `⏳ Encontrada: "${video.title}". Procesando subida a la radio...`);
             const exito = await descargarYSubirAzura(video);
             
             if (exito) {
                 ultimoSaludo = { nombre: nombreOyente, texto: `pidió ${video.title}`, fecha: new Date() };
-                bot.sendMessage(chatId, `✅ **¡Listo!**\n🎶 "${video.title}" ya está en la radio.\n\nSalomé la presentará en breve.`);
+                bot.sendMessage(chatId, `✅ **¡Subida con éxito!**\n🎶 "${video.title}" ya está lista.\n\nSalomé la presentará en la radio muy pronto.`);
             } else {
-                bot.sendMessage(chatId, "❌ Hubo un error al subir el archivo a la radio.");
+                bot.sendMessage(chatId, "❌ El servidor de radio rechazó el archivo. Verifica que la carpeta 'Musica_Nueva' exista en AzuraCast.");
             }
         } else {
-            bot.sendMessage(chatId, "❌ No encontré esa canción en YouTube.");
+            bot.sendMessage(chatId, "❌ No encontré esa canción. Prueba con el nombre exacto del artista y la canción.");
         }
         return;
     }
 
+    // Saludo normal
     if (!msg.text.startsWith('/')) {
         ultimoSaludo = { nombre: nombreOyente, texto: msg.text, fecha: new Date() };
-        bot.sendMessage(chatId, `¡Mensaje recibido, ${nombreOyente}! Lo pasaremos al aire pronto. 🎙️`);
+        bot.sendMessage(chatId, `¡Hola ${nombreOyente}! He recibido tu mensaje. Lo pasaré al sistema de voz de Salomé. 🎙️`);
     }
 });
-
 
 
 async function obtenerAhoraSuena() {
