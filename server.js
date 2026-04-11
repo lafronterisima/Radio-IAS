@@ -59,25 +59,32 @@ async function descargarYSubirAzura(video) {
     try {
         console.log(`🎙️ Extrayendo audio: ${video.title}`);
 
-        // Para evitar el error "Invalid data", usamos un User-Agent y 
-        // dejamos que FFmpeg intente capturar el stream. 
-        // Si estás en Render/Koyeb, asegúrate de tener ffmpeg disponible.
+        // Usamos una técnica de stream para engañar al servidor
         await new Promise((resolve, reject) => {
             ffmpeg(video.url)
                 .inputOptions([
-                    '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                    '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    '-protocol_whitelist', 'file,http,https,tcp,tls,crypto'
                 ])
                 .toFormat('mp3')
                 .audioBitrate(192)
-                .on('error', (err) => reject(err))
+                .on('start', (cmd) => console.log("⚙️ FFmpeg procesando stream..."))
+                .on('error', (err) => {
+                    console.error("❌ Error FFmpeg detalle:", err.message);
+                    reject(err);
+                })
                 .on('end', () => resolve())
                 .save(tempFile);
         });
 
-        console.log(`📤 Subiendo a la raíz de AzuraCast...`);
+        // Verificamos tamaño antes de subir
+        const stats = fs.statSync(tempFile);
+        if (stats.size < 1000) throw new Error("Archivo generado demasiado pequeño (posible error de descarga)");
+
+        console.log(`📤 Subiendo a la raíz de AzuraCast (${(stats.size / 1024 / 1024).toFixed(2)} MB)...`);
 
         const form = new FormData();
-        form.append('path', ''); // Vacío para subir a la raíz
+        form.append('path', ''); 
         form.append('file', fs.createReadStream(tempFile), {
             filename: nombreFinal,
             contentType: 'audio/mpeg'
@@ -89,15 +96,14 @@ async function descargarYSubirAzura(video) {
                 "X-API-Key": KEYS.AZURA
             },
             maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            timeout: 300000 
+            maxBodyLength: Infinity
         });
 
-        console.log(`✅ ¡Éxito! Archivo subido.`);
+        console.log(`✅ ¡Éxito en Raíz!`);
         return true;
 
     } catch (err) {
-        console.error("❌ Error en subida:", err.message);
+        console.error("❌ Error Crítico:", err.message);
         return false;
     } finally {
         if (fs.existsSync(tempFile)) {
