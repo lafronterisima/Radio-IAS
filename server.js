@@ -78,60 +78,32 @@ async function buscarMusicaYouTube(query) {
 
 async function descargarYSubirAzura(video) {
     const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
-    const carpetaDestino = "Musica_Nueva"; 
-    const nombreFinal = `pedido_${Date.now()}_${limpiarNombreArchivo(video.title)}.mp3`;
+    const cookiesPath = path.join(__dirname, 'cookies.txt'); // Ruta al archivo que bajaste
 
     try {
-        console.log(`📥 Descargando: ${video.title}`);
-        
-        // Intentamos evadir el bloqueo de bot con un User-Agent
+        console.log(`📥 Descargando con Cookies: ${video.title}`);
+
+        // Verificamos si el archivo de cookies existe antes de empezar
+        if (!fs.existsSync(cookiesPath)) {
+            throw new Error("❌ No se encontró el archivo cookies.txt en la carpeta del proyecto.");
+        }
+
+        const cookieData = fs.readFileSync(cookiesPath, 'utf8');
+
         await pipeline(
             ytdl(video.url, { 
                 filter: 'audioonly', 
                 quality: 'highestaudio',
                 requestOptions: {
                     headers: {
+                        // Aquí le pasamos tus cookies a YouTube
+                        'Cookie': cookieData,
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                     }
                 }
             }),
             fs.createWriteStream(tempFile)
         );
-
-        console.log(`✅ Descarga completada. Subiendo a AzuraCast...`);
-
-        const form = new FormData();
-        form.append('path', carpetaDestino); 
-        const rutaRelativaCompleta = `${carpetaDestino}/${nombreFinal}`;
-
-        form.append('file', fs.createReadStream(tempFile), { 
-            filename: rutaRelativaCompleta,
-            contentType: 'audio/mpeg'
-        });
-
-        await axios.post(AZURA_API_UPLOAD, form, { 
-            headers: { 
-                ...form.getHeaders(), 
-                "X-API-Key": KEYS.AZURA 
-            },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            timeout: 600000 
-        });
-
-        console.log(`🚀 ¡Subida exitosa!`);
-        return true;
-
-    } catch (err) {
-        // Log detallado del error de YouTube o Azura
-        console.error("❌ Error en el proceso:", err.response?.data || err.message);
-        return false;
-    } finally {
-        if (fs.existsSync(tempFile)) {
-            try { fs.unlinkSync(tempFile); } catch (e) {}
-        }
-    }
-}
 
 // ======= LÓGICA DE TELEGRAM =======
 
