@@ -57,31 +57,32 @@ async function descargarYSubirAzura(video) {
     const nombreFinal = `pedido_${Date.now()}.mp3`;
 
     try {
-        console.log(`🎙️ Extrayendo audio: ${video.title}`);
+        console.log(`🎙️ Intentando extraer stream de: ${video.title}`);
 
-        // Usamos una técnica de stream para engañar al servidor
         await new Promise((resolve, reject) => {
+            // Intentamos forzar a FFmpeg a buscar el stream de video real
             ffmpeg(video.url)
                 .inputOptions([
-                    '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    '-protocol_whitelist', 'file,http,https,tcp,tls,crypto'
+                    '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    '-reconnect', '1',
+                    '-reconnect_streamed', '1',
+                    '-reconnect_delay_max', '5'
                 ])
-                .toFormat('mp3')
+                .noVideo() // Ignoramos el video para ahorrar recursos
+                .audioCodec('libmp3lame')
                 .audioBitrate(192)
-                .on('start', (cmd) => console.log("⚙️ FFmpeg procesando stream..."))
-                .on('error', (err) => {
-                    console.error("❌ Error FFmpeg detalle:", err.message);
-                    reject(err);
-                })
+                .on('start', (cmd) => console.log("⚙️ Procesando con FFmpeg..."))
+                .on('error', (err) => reject(err))
                 .on('end', () => resolve())
                 .save(tempFile);
         });
 
-        // Verificamos tamaño antes de subir
-        const stats = fs.statSync(tempFile);
-        if (stats.size < 1000) throw new Error("Archivo generado demasiado pequeño (posible error de descarga)");
+        // Verificación de archivo
+        if (!fs.existsSync(tempFile) || fs.statSync(tempFile).size < 1000) {
+            throw new Error("El archivo MP3 está vacío o es inválido.");
+        }
 
-        console.log(`📤 Subiendo a la raíz de AzuraCast (${(stats.size / 1024 / 1024).toFixed(2)} MB)...`);
+        console.log(`📤 Subiendo a la raíz de AzuraCast...`);
 
         const form = new FormData();
         form.append('path', ''); 
@@ -91,24 +92,20 @@ async function descargarYSubirAzura(video) {
         });
 
         await axios.post(AZURA_API_UPLOAD, form, {
-            headers: {
-                ...form.getHeaders(),
-                "X-API-Key": KEYS.AZURA
-            },
+            headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
             maxContentLength: Infinity,
             maxBodyLength: Infinity
         });
 
-        console.log(`✅ ¡Éxito en Raíz!`);
+        console.log(`✅ ¡Éxito! Canción subida a la raíz.`);
         return true;
 
     } catch (err) {
         console.error("❌ Error Crítico:", err.message);
+        // Si sigue fallando el stream, es que el hosting bloquea el scraping
         return false;
     } finally {
-        if (fs.existsSync(tempFile)) {
-            try { fs.unlinkSync(tempFile); } catch (e) {}
-        }
+        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
     }
 }
 
