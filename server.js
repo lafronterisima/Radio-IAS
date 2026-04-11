@@ -81,26 +81,20 @@ async function descargarYSubirAzura(video) {
     const tempFile = path.join(__dirname, 'tmp_yt_track.mp3');
     const carpetaDestino = "Musica_Nueva";
     const nombreArchivo = "pedido_actual.mp3"; 
-    const rutaRelativaCompleta = `${carpetaDestino}/${nombreArchivo}`;
 
     try {
-        console.log(`📥 Descargando: ${video.title}`);
+        console.log(`📥 Descargando con yt-dlp: ${video.title}`);
         
-        // Configuración de ytdl optimizada para evitar errores 403
-        const stream = ytdl(video.url, { 
-            filter: 'audioonly', 
-            quality: 'highestaudio',
-            highWaterMark: 1 << 25 // Buffer de 32MB para evitar cortes
-        });
-        
-        await pipeline(stream, fs.createWriteStream(tempFile));
-        console.log("📦 Descarga completada. Iniciando subida...");
+        // Usamos yt-dlp vía comando de sistema para mayor estabilidad
+        // Asegúrate de tener instalado yt-dlp en tu servidor (Render/Koyeb)
+        await execPromise(`yt-dlp -x --audio-format mp3 -o "${tempFile}" "${video.url}"`);
+
+        console.log("📦 Descarga completada. Iniciando subida a AzuraCast...");
 
         const form = new FormData();
-        // IMPORTANTE: Según tu análisis, el path va primero
         form.append('path', carpetaDestino); 
         form.append('file', fs.createReadStream(tempFile), { 
-            filename: rutaRelativaCompleta, 
+            filename: nombreArchivo, 
             contentType: 'audio/mpeg'
         });
 
@@ -108,24 +102,14 @@ async function descargarYSubirAzura(video) {
             headers: { 
                 ...form.getHeaders(), 
                 "X-API-Key": KEYS.AZURA 
-            },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            timeout: 180000 
+            }
         });
 
-        console.log("✅ Azura respondió OK:", res.status);
         if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         return true;
 
     } catch (err) {
-        // Log detallado para saber POR QUÉ falló
-        console.error("❌ Error en el proceso:");
-        if (err.response) {
-            console.error("Respuesta Azura:", err.response.data);
-        } else {
-            console.error("Mensaje:", err.message);
-        }
+        console.error("❌ Error en el proceso:", err.message);
         if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         return false;
     }
