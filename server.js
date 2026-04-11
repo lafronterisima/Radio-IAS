@@ -7,7 +7,7 @@ const FormData = require("form-data");
 const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
 const ffmpeg = require('fluent-ffmpeg');
-const { search } = require('dailymotion-search');
+
 
 const app = express();
 
@@ -31,17 +31,21 @@ const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 async function buscarEnDailymotion(query) {
     try {
         console.log(`🔎 Buscando en Dailymotion: ${query}`);
-        const results = await search(query, { limit: 1 });
-        if (!results || results.length === 0) return null;
+        
+        // Usamos el endpoint público de Dailymotion
+        const url = `https://api.dailymotion.com/videos?search=${encodeURIComponent(query)}&fields=id,title&limit=1`;
+        const res = await axios.get(url);
+        
+        if (!res.data.list || res.data.list.length === 0) return null;
 
+        const video = res.data.list[0];
         return {
-            id: results[0].id,
-            title: results[0].title,
-            // Importante: Usamos la URL del video para que FFmpeg la procese
-            url: `https://www.dailymotion.com/video/${results[0].id}`
+            id: video.id,
+            title: video.title,
+            url: `https://www.dailymotion.com/video/${video.id}`
         };
     } catch (e) {
-        console.error("❌ Error Dailymotion Search:", e.message);
+        console.error("❌ Error API Dailymotion:", e.message);
         return null;
     }
 }
