@@ -49,14 +49,13 @@ async function buscarEnDailymotion(query) {
 
 async function descargarYSubirAzura(video) {
     const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
-    const carpetaDestino = "Musica_Nueva"; // ASEGÚRATE QUE EXISTA EN AZURACAST
+    // Dejamos el nombre del archivo limpio, sin carpetas
     const nombreFinal = `pedido_${Date.now()}.mp3`;
-    const rutaRelativaCompleta = `${carpetaDestino}/${nombreFinal}`;
 
     try {
-        console.log(`🎙️ Procesando audio: ${video.title}`);
+        console.log(`🎙️ Procesando audio para Raíz: ${video.title}`);
 
-        // Conversión a MP3 real
+        // 1. Conversión con FFmpeg
         await new Promise((resolve, reject) => {
             ffmpeg(video.url)
                 .toFormat('mp3')
@@ -66,15 +65,17 @@ async function descargarYSubirAzura(video) {
                 .save(tempFile);
         });
 
-        console.log(`📤 Subiendo a AzuraCast...`);
-
-        if (!fs.existsSync(tempFile)) throw new Error("El archivo temporal no se creó.");
+        console.log(`📤 Subiendo a la CARPETA RAÍZ...`);
 
         const form = new FormData();
-        // Importante: Algunas versiones de Azura prefieren el path sin barras iniciales
-        form.append('path', carpetaDestino); 
+        
+        // --- LA CLAVE PARA LA RAÍZ ---
+        // 1. El path debe ir vacío o ser "/"
+        form.append('path', ''); 
+
+        // 2. El filename NO debe tener rutas, solo el nombre del archivo
         form.append('file', fs.createReadStream(tempFile), {
-            filename: rutaRelativaCompleta, // Esto fuerza la carpeta en el destino
+            filename: nombreFinal, 
             contentType: 'audio/mpeg'
         });
 
@@ -88,12 +89,11 @@ async function descargarYSubirAzura(video) {
             timeout: 300000 
         });
 
-        console.log(`✅ ¡Subida exitosa! Respuesta:`, resAzura.data.success ? "OK" : "Error en server");
+        console.log(`✅ ¡Subida a raíz exitosa!`);
         return true;
 
     } catch (err) {
-        // Log detallado para saber exactamente qué rechazó Azura
-        console.error("❌ Error en el proceso:", err.response?.data || err.message);
+        console.error("❌ Error en subida a raíz:", err.response?.data || err.message);
         return false;
     } finally {
         if (fs.existsSync(tempFile)) {
