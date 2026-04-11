@@ -198,7 +198,7 @@ app.listen(PORT, "0.0.0.0", () => {
     bot.launch();
     
     // Intervalos
-    setInterval(autoReporte, 15 * 60 * 1000); // Cada 15 min
+    setInterval(autoReporte, 14 * 60 * 1000); // Cada 15 min
     setTimeout(autoReporte, 5000); // Primer reporte al iniciar
 });
 
