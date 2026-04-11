@@ -8,7 +8,6 @@ const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
 const ffmpeg = require('fluent-ffmpeg');
 
-
 const app = express();
 
 // ======= 1. CONFIGURACIÓN =======
@@ -28,21 +27,19 @@ const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 
 // ======= 3. FUNCIONES DE APOYO =======
 
+// Búsqueda nativa sin librerías externas
 async function buscarEnDailymotion(query) {
     try {
         console.log(`🔎 Buscando en Dailymotion: ${query}`);
-        
-        // Usamos el endpoint público de Dailymotion
         const url = `https://api.dailymotion.com/videos?search=${encodeURIComponent(query)}&fields=id,title&limit=1`;
         const res = await axios.get(url);
         
         if (!res.data.list || res.data.list.length === 0) return null;
 
-        const video = res.data.list[0];
         return {
-            id: video.id,
-            title: video.title,
-            url: `https://www.dailymotion.com/video/${video.id}`
+            id: res.data.list[0].id,
+            title: res.data.list[0].title,
+            url: `https://www.dailymotion.com/video/${res.data.list[0].id}`
         };
     } catch (e) {
         console.error("❌ Error API Dailymotion:", e.message);
@@ -52,36 +49,32 @@ async function buscarEnDailymotion(query) {
 
 async function descargarYSubirAzura(video) {
     const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
-    const carpetaDestino = "Musica_Nueva";
+    const carpetaDestino = "Musica_Nueva"; // ASEGÚRATE QUE EXISTA EN AZURACAST
     const nombreFinal = `pedido_${Date.now()}.mp3`;
     const rutaRelativaCompleta = `${carpetaDestino}/${nombreFinal}`;
 
     try {
-        console.log(`🎙️ Extrayendo audio con FFmpeg de: ${video.title}`);
+        console.log(`🎙️ Procesando audio: ${video.title}`);
 
-        // CONVERSIÓN: FFmpeg toma la URL de Dailymotion y la convierte a MP3
+        // Conversión a MP3 real
         await new Promise((resolve, reject) => {
             ffmpeg(video.url)
                 .toFormat('mp3')
                 .audioBitrate(192)
-                .on('start', (cmd) => console.log("⚙️ FFmpeg procesando..."))
-                .on('end', () => {
-                    console.log("✅ MP3 generado correctamente.");
-                    resolve();
-                })
-                .on('error', (err) => {
-                    console.error("❌ Error FFmpeg:", err.message);
-                    reject(err);
-                })
+                .on('error', (err) => reject(err))
+                .on('end', () => resolve())
                 .save(tempFile);
         });
 
         console.log(`📤 Subiendo a AzuraCast...`);
 
+        if (!fs.existsSync(tempFile)) throw new Error("El archivo temporal no se creó.");
+
         const form = new FormData();
-        form.append('path', carpetaDestino);
+        // Importante: Algunas versiones de Azura prefieren el path sin barras iniciales
+        form.append('path', carpetaDestino); 
         form.append('file', fs.createReadStream(tempFile), {
-            filename: rutaRelativaCompleta,
+            filename: rutaRelativaCompleta, // Esto fuerza la carpeta en el destino
             contentType: 'audio/mpeg'
         });
 
@@ -92,14 +85,15 @@ async function descargarYSubirAzura(video) {
             },
             maxContentLength: Infinity,
             maxBodyLength: Infinity,
-            timeout: 240000 // 4 minutos
+            timeout: 300000 
         });
 
-        console.log(`🚀 ¡Subida exitosa a la radio!`);
+        console.log(`✅ ¡Subida exitosa! Respuesta:`, resAzura.data.success ? "OK" : "Error en server");
         return true;
 
     } catch (err) {
-        console.error("❌ Fallo en el proceso:", err.response?.data || err.message);
+        // Log detallado para saber exactamente qué rechazó Azura
+        console.error("❌ Error en el proceso:", err.response?.data || err.message);
         return false;
     } finally {
         if (fs.existsSync(tempFile)) {
@@ -113,27 +107,26 @@ async function descargarYSubirAzura(video) {
 bot.on('message', async (msg) => {
     if (msg.text && msg.text.startsWith('/pedir ')) {
         const busqueda = msg.text.replace('/pedir ', '').trim();
-        
-        if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "⚠️ El nombre es muy corto.");
-
-        bot.sendMessage(msg.chat.id, `🎶 Buscando "${busqueda}" en Dailymotion...`);
+        bot.sendMessage(msg.chat.id, `🎶 Buscando "${busqueda}"...`);
 
         const video = await buscarEnDailymotion(busqueda);
         
         if (video) {
-            bot.sendMessage(msg.chat.id, `⏳ Procesando audio: "${video.title}"...`);
+            bot.sendMessage(msg.chat.id, `⏳ Procesando: "${video.title}"...`);
             const exito = await descargarYSubirAzura(video);
             
             if (exito) {
-                bot.sendMessage(msg.chat.id, `✅ ¡Hecho! "${video.title}" ya está en el sistema de la radio.`);
+                bot.sendMessage(msg.chat.id, `✅ ¡Listo! Ya está en la radio.`);
             } else {
-                bot.sendMessage(msg.chat.id, `❌ Hubo un problema al subir el audio a AzuraCast.`);
+                bot.sendMessage(msg.chat.id, `❌ Error al subir a la radio. Revisa si la carpeta 'Musica_Nueva' existe.`);
             }
         } else {
-            bot.sendMessage(msg.chat.id, `❌ No encontré resultados para esa búsqueda.`);
+            bot.sendMessage(msg.chat.id, `❌ No encontré la canción.`);
         }
     }
 });
+
+
 
 async function obtenerAhoraSuena() {
     try {
