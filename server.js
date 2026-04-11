@@ -8,8 +8,6 @@ const { exec } = require("child_process");
 const path = require("path");
 const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
-const YouTube = require('youtube-sr').default;
-const ytdl = require('ytdl-core-discord');
 const { Groq } = require('groq-sdk');
 
 const app = express();
