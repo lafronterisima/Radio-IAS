@@ -7,10 +7,14 @@ const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
 const ytdl = require('@distube/ytdl-core');
+const ytExec = require('youtube-dl-exec');
 const path = require("path");
 const { Groq } = require('groq-sdk');
 const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
+const { Telegraf } = require('telegraf');
+const YTMusic = require("ytmusic-api")
+
 
 const app = express();
 app.use(express.json());
@@ -37,6 +41,9 @@ const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
 // ======= 2. TELEGRAM (SALUDOS Y PEDIDOS) =======
+const token = safeTrim(process.env.TELEGRAM_TOKEN);
+const safeTrim = (str) => (typeof str === 'string' ? str.trim() : str);
+const bot = new Telegraf(token);
 const groq = new Groq({ apiKey: KEYS.GROQ });
 const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
@@ -44,90 +51,83 @@ let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 
 // ======= 3. FUNCIONES DE APOYO (YOUTUBE) =======
 
-async function buscarMusicaYouTube(query) {
+(async () => {
     try {
-        if (!KEYS.YOUTUBE) return null;
-        const res = await youtube.search.list({
-            part: 'snippet',
-            q: `${query} official audio`,
-            maxResults: 1,
-            type: 'video',
-            videoCategoryId: '10' // Categoría Música
-        });
-        if (!res.data.items || res.data.items.length === 0) return null;
-        const item = res.data.items[0];
-        return { 
-            id: item.id.videoId, 
-            title: item.snippet.title, 
-            url: `https://www.youtube.com/watch?v=${item.id.videoId}` 
-        };
-    } catch (e) { 
-        console.error("❌ Error YouTube:", e.message);
-        return null; 
-    }
-}
-
-async function descargarYSubirAzura(video, carpeta = "Musica_Nueva") {
-    const tempFile = path.join(__dirname, `yt_${video.id}.mp3`);
-    try {
-        console.log(`📥 Descargando de YT: ${video.title}`);
-        const stream = ytdl(video.url, { filter: 'audioonly', quality: 'highestaudio' });
-        await pipeline(stream, fs.createWriteStream(tempFile));
-
-        const form = new FormData();
-        form.append('path', carpeta);
-        form.append('file', fs.createReadStream(tempFile), { 
-            filename: `${carpeta}/pedido_${Date.now()}.mp3`,
-            contentType: 'audio/mpeg'
-        });
-
-        await axios.post(AZURA_API_UPLOAD, form, { 
-            headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
-            timeout: 180000 
-        });
-
-        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        return true;
+        await ytmusic.initialize();
+        console.log("✅ YT Music inicializado correctamente");
     } catch (err) {
-        console.error("❌ Error Proceso:", err.message);
-        if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        return false;
+        console.error("❌ Error inicializando YT Music:", err);
     }
+})();
+
+// --- FUNCIONES DE APOYO ---
+
+async function descargarCancion(videoId) {
+    // Usamos la carpeta temporal del sistema para evitar problemas de permisos
+    const outputPath = path.join(__dirname, `temp_${videoId}.mp3`);
+    await ytExec(`https://www.youtube.com/watch?v=${videoId}`, {
+        extractAudio: true,
+        audioFormat: 'mp3',
+        output: outputPath,
+        format: 'bestaudio/best',
+    });
+    return outputPath;
 }
 
-// ======= 4. LÓGICA DE TELEGRAM =======
+async function uploadToAzuraCast(filePath, fileName) {
+    const form = new FormData();
+    form.append('file', fs.createReadStream(filePath), fileName);
 
-bot.on('message', async (msg) => {
-    if (!msg.text) return;
-
-    const nombreOyente = msg.from.first_name || "un oyente";
-
-    if (msg.text.startsWith('/pedir ')) {
-        const busqueda = msg.text.replace('/pedir ', '').trim();
-        bot.sendMessage(msg.chat.id, `🔎 Buscando en YouTube: "${busqueda}"...`);
-        
-        const video = await buscarMusicaYouTube(busqueda);
-        if (video) {
-            const exito = await descargarYSubirAzura(video);
-            if (exito) {
-                ultimoSaludo = { nombre: nombreOyente, texto: `pidió ${video.title}`, fecha: new Date() };
-                bot.sendMessage(msg.chat.id, `✅ **¡Encontrada!**\n🎶 "${video.title}"\n\nSalomé la presentará en breve.`);
-            } else {
-                bot.sendMessage(msg.chat.id, "❌ Error al subir la canción a la radio.");
-            }
-        } else {
-            bot.sendMessage(msg.chat.id, "❌ No encontré esa canción en YouTube.");
+    // Reemplaza con tu URL y Station ID de AzuraCast
+    await axios.post(`${process.env.AZURACAST_URL}/api/station/${process.env.STATION_ID}/files`, form, {
+        headers: {
+            ...form.getHeaders(),
+            'X-API-Key': process.env.AZURACAST_API_KEY
         }
-        return;
-    }
+    });
+}
 
-    // Saludo normal
-    if (!msg.text.startsWith('/')) {
-        ultimoSaludo = { nombre: nombreOyente, texto: msg.text, fecha: new Date() };
-        bot.sendMessage(msg.chat.id, "¡Recibido! Salomé te enviará un saludo pronto. 🎙️");
+// --- LÓGICA DEL BOT ---
+
+bot.on('text', async (ctx) => {
+    const query = ctx.message.text;
+    
+    try {
+        await ctx.reply('🔍 Buscando en YouTube Music...');
+        const resultados = await ytmusic.searchSongs(query);
+        
+        if (resultados.length === 0) {
+            return ctx.reply('No encontré esa canción.');
+        }
+
+        const cancion = resultados[0];
+        const statusMsg = await ctx.reply(`⏳ Descargando: ${cancion.name}...`);
+
+        // 1. Descargar
+        const rutaArchivo = await descargarCancion(cancion.videoId);
+
+        // 2. Subir a AzuraCast
+        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '🚀 Subiendo a AzuraCast...');
+        await uploadToAzuraCast(rutaArchivo, `${cancion.name}.mp3`);
+
+        // 3. Limpiar archivo temporal
+        if (fs.existsSync(rutaArchivo)) {
+            fs.unlinkSync(rutaArchivo);
+        }
+
+        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, `✅ ¡${cancion.name} ya está en la emisora!`);
+
+    } catch (error) {
+        console.error(error);
+        ctx.reply('❌ Hubo un fallo en el proceso. Revisa los logs.');
     }
 });
 
+bot.launch().then(() => console.log('🚀 Bot de La Fronterísima en marcha...'));
+
+// Manejo de cierre limpio
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
 
 
 async function obtenerAhoraSuena() {
