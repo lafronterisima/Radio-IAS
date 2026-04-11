@@ -280,19 +280,19 @@ async function autoReporte() {
         const np = await obtenerAhoraSuena();
         const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
         
-        let extras = "";
+        let mencionSaludo = "";
         if (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 30 * 60 * 1000)) {
-            extras += ` SALUDO: ${ultimoSaludo.nombre} dice ${ultimoSaludo.texto}.`;
+            mencionSaludo = `OYENTE: ${ultimoSaludo.nombre} dice "${ultimoSaludo.texto}".`;
         }
 
-        const prompt = `Salomé de La Fronterísima Cali. Hora: ${hora}. Música: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. Noticias: ${bbc}. ${extras} Guion rumbero de 50 palabras.`;
+        const prompt = `Locutora La Fronterísima. Hora: ${hora}. Música: ${np.titulo} de ${np.artista}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C en Colombia. Noticias: ${bbc}. ${mencionSaludo} Guion de 55 palabras, muy alegre.`;
+        
         const guion = await redactarIA(prompt);
-        const pathVoz = `v_auto_${Date.now()}.mp3`;
-        await generarVoz(guion, pathVoz);
-        await producirYSubir(pathVoz, "dj_auto.mp3", true);
-        ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 (15 min) actualizado.");
-    } catch (e) { console.error("Error AutoReporte:", e.message); }
+        await generarVoz(guion, "v_auto.mp3");
+        await producirYSubir("v_auto.mp3", "dj_auto.mp3", true);
+        ultimoSaludo.fecha = null;
+        console.log("✅ dj_auto.mp3 actualizado.");
+    } catch (e) { console.error("Error Auto:", e.message); }
 }
 
 async function autoRedactorIA() {
