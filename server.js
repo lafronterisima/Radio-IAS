@@ -286,24 +286,60 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 
 async function autoReporte() {
     try {
+        // 1. Recopilación de datos en tiempo real
         const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
         const bbc = await obtenerNoticiasBBC();
-        const np = await obtenerAhoraSuena();
-        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
+        const np = await obtenerAhoraSuena(); // Lo que suena en el stream
+        const hora = new Date().toLocaleTimeString("es-CO", { 
+            timeZone: "America/Bogota", 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            hour12: true 
+        });
         
+        // 2. Gestión de la "Memoria" de saludos y pedidos
         let extras = "";
-        if (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 30 * 60 * 1000)) {
-            extras += ` SALUDO: ${ultimoSaludo.nombre} dice ${ultimoSaludo.texto}.`;
+        const ahora = new Date();
+        const tiempoLimite = 30 * 60 * 1000; // 30 minutos
+
+        if (ultimoSaludo.fecha && (ahora - ultimoSaludo.fecha < tiempoLimite)) {
+            // Personalizamos el mensaje según si es un saludo o un pedido de música
+            extras = `\nATENCIÓN: El oyente ${ultimoSaludo.nombre} envió este mensaje: "${ultimoSaludo.texto}". Salúdalo con mucha energía rumbera.`;
+            
+            // Limpiamos después de usarlo para que no se repita en el próximo ciclo
+            ultimoSaludo.fecha = null; 
         }
 
-        const prompt = `Salomé de La Fronterísima Cali. Hora: ${hora}. Música: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. Noticias: ${bbc}. ${extras} Guion rumbero de 50 palabras.`;
+        // 3. Construcción del Prompt para la IA (Salomé)
+        const prompt = `
+            Eres Salomé, la voz oficial de La Fronterísima en Cali. 
+            DATOS ACTUALES:
+            - Hora: ${hora}
+            - Clima: ${Math.round(clim.data.current_weather.temperature)}°C (soleado y rumbero).
+            - Sonando ahora: "${np.titulo}" de ${np.artista}.
+            - Noticia del momento: ${bbc}.
+            ${extras}
+
+            INSTRUCCIÓN: Redacta un guion de locución de máximo 50 palabras. 
+            Usa jerga caleña suave, sé muy alegre y carismática. 
+            Termina siempre con la frase: "La Fronterísima... ¡Notas surcando fronteras!".
+        `;
+
+        // 4. Generación de contenido y audio
         const guion = await redactarIA(prompt);
-        const pathVoz = `v_auto_${Date.now()}.mp3`;
+        const pathVoz = path.join(__dirname, `v_auto_${Date.now()}.mp3`);
+
         await generarVoz(guion, pathVoz);
+        
+        // 5. Producción final (Mezcla con fondo musical) y subida a AzuraCast
+        // Se sube como 'dj_auto.mp3' para que Azura lo reproduzca según tu playlist
         await producirYSubir(pathVoz, "dj_auto.mp3", true);
-        ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 (15 min) actualizado.");
-    } catch (e) { console.error("Error AutoReporte:", e.message); }
+        
+        console.log("✅ dj_auto.mp3 (Reporte 15 min) actualizado y listo para el aire.");
+
+    } catch (e) { 
+        console.error("❌ Error en el ciclo de AutoReporte:", e.message); 
+    }
 }
 
 async function autoRedactorIA() {
@@ -347,22 +383,42 @@ app.get("/health", (req, res) => res.sendStatus(200));
 
 // ======= 8. INICIO DEL SERVIDOR =======
 async function iniciarSistema() {
-    console.log("🎙️ Limpiando rastro de Telegram...");
+    console.log("🎙️ Limpiando sesiones de Telegram anteriores...");
     try {
+        // Detenemos cualquier polling activo y borramos mensajes acumulados (evita el 409)
         await bot.stopPolling();
         await bot.deleteWebHook({ drop_pending_updates: true });
-    } catch (e) {}
+    } catch (e) {
+        // Si falla porque no había sesión, no pasa nada
+    }
 
-    console.log("⏳ Esperando 10 segundos para estabilizar conexión...");
+    // Espera estratégica de 10 segundos
+    console.log("⏳ Estabilizando conexión (10s)...");
     setTimeout(async () => {
         try {
             await bot.startPolling();
             console.log("✅ Salomé escuchando en Telegram.");
-        } catch (e) { console.error("Error al iniciar:", e.message); }
+        } catch (e) { 
+            console.error("⚠️ No se pudo iniciar el bot:", e.message); 
+        }
     }, 10000);
 }
 
 const PORT = process.env.PORT || 8000;
+
+app.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 Servidor La Fronterísima corriendo en puerto ${PORT}`);
+    
+    // 1. Iniciamos Telegram con el retraso de seguridad
+    iniciarSistema();
+
+    // 2. Primer reporte a los 15 segundos de encender
+    setTimeout(autoReporte, 15000);
+
+    // 3. Ciclos repetitivos
+    setInterval(autoReporte, 15 * 60 * 1000);   // Cada 15 min (Reporte Clima/Pedidos)
+    setInterval(autoRedactorIA, 50 * 60 * 1000); // Cada 50 min (Contenido variado)
+});
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Servidor en puerto ${PORT}`);
     iniciarSistema();
