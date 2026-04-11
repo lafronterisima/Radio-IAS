@@ -6,22 +6,18 @@ const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
-const ytdl = require('@distube/ytdl-core');
 const ytExec = require('youtube-dl-exec');
 const path = require("path");
 const { Groq } = require('groq-sdk');
-const TelegramBot = require('node-telegram-bot-api');
-const { pipeline } = require('stream/promises');
 const { Telegraf } = require('telegraf');
-const YTMusic = require("ytmusic-api")
-
+const YTMusic = require("ytmusic-api");
 
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 // ======= 1. CONFIGURACIÓN =======
-const safeTrim = (val) => val ? val.trim() : "";
+const safeTrim = (val) => (typeof val === 'string' ? val.trim() : "");
 const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
 
 const KEYS = {
@@ -29,28 +25,24 @@ const KEYS = {
     GROQ: safeTrim(process.env.GROQ_API_KEY),
     AZURE: safeTrim(process.env.AZURE_SPEECH_KEY),
     AZURE_REGION: safeTrim(process.env.AZURE_REGION),
-    AZURA: safeTrim(process.env.AZURA_KEY),
-    STATION_ID: sID,
+    AZURA_KEY: safeTrim(process.env.AZURA_KEY),
     PASSWORD: safeTrim(process.env.APP_PASSWORD),
+    STATION_ID: sID,
     TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN),
     YOUTUBE: safeTrim(process.env.YOUTUBE_KEY),
-    JAMENDO_ID: safeTrim(process.env.JAMENDO_CLIENT_ID) || "c230e1f4"
+    AZURA_URL: safeTrim(process.env.AZURACAST_URL) // Asegúrate de tener esta en tu .env
 };
 
-const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
-const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
-
-// ======= 2. TELEGRAM (SALUDOS Y PEDIDOS) =======
-const token = safeTrim(process.env.TELEGRAM_TOKEN);
-const safeTrim = (str) => (typeof str === 'string' ? str.trim() : str);
-const bot = new Telegraf(token);
+// ======= 2. INICIALIZACIÓN DE INSTANCIAS =======
+// Solo una instancia de cada cosa
+const bot = new Telegraf(KEYS.TELEGRAM_TOKEN);
+const ytmusic = new YTMusic();
 const groq = new Groq({ apiKey: KEYS.GROQ });
 const youtube = google.youtube({ version: 'v3', auth: KEYS.YOUTUBE });
-const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
+
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 
-// ======= 3. FUNCIONES DE APOYO (YOUTUBE) =======
-
+// Inicializar YT Music
 (async () => {
     try {
         await ytmusic.initialize();
@@ -60,11 +52,11 @@ let ultimoSaludo = { nombre: "", texto: "", fecha: null };
     }
 })();
 
-// --- FUNCIONES DE APOYO ---
+// ======= 3. FUNCIONES DE APOYO =======
 
 async function descargarCancion(videoId) {
-    // Usamos la carpeta temporal del sistema para evitar problemas de permisos
     const outputPath = path.join(__dirname, `temp_${videoId}.mp3`);
+    // Usamos yt-dlp para extraer solo el audio
     await ytExec(`https://www.youtube.com/watch?v=${videoId}`, {
         extractAudio: true,
         audioFormat: 'mp3',
@@ -78,52 +70,73 @@ async function uploadToAzuraCast(filePath, fileName) {
     const form = new FormData();
     form.append('file', fs.createReadStream(filePath), fileName);
 
-    // Reemplaza con tu URL y Station ID de AzuraCast
-    await axios.post(`${process.env.AZURACAST_URL}/api/station/${process.env.STATION_ID}/files`, form, {
+    const url = `${KEYS.AZURA_URL}/api/station/${KEYS.STATION_ID}/files`;
+    
+    await axios.post(url, form, {
         headers: {
             ...form.getHeaders(),
-            'X-API-Key': process.env.AZURACAST_API_KEY
+            'X-API-Key': KEYS.AZURA_KEY
         }
     });
 }
 
-// --- LÓGICA DEL BOT ---
+// ======= 4. LÓGICA DEL BOT DE TELEGRAM =======
 
-bot.on('text', async (ctx) => {
-    const query = ctx.message.text;
-    
+// Manejo de comandos (Ej: /pedir La Bachata)
+bot.command('pedir', async (ctx) => {
+    const query = ctx.payload;
+    if (!query) return ctx.reply("🎙️ ¿Qué canción quieres? Ej: /pedir La Bachata");
+
+    const nombreOyente = ctx.from.first_name || "un oyente";
+    let statusMsg;
+
     try {
-        await ctx.reply('🔍 Buscando en YouTube Music...');
+        statusMsg = await ctx.reply('🔍 Buscando en YouTube Music...');
         const resultados = await ytmusic.searchSongs(query);
         
         if (resultados.length === 0) {
-            return ctx.reply('No encontré esa canción.');
+            return ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, 'No encontré esa canción.');
         }
 
         const cancion = resultados[0];
-        const statusMsg = await ctx.reply(`⏳ Descargando: ${cancion.name}...`);
+        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, `⏳ Descargando: ${cancion.name}...`);
 
         // 1. Descargar
         const rutaArchivo = await descargarCancion(cancion.videoId);
 
-        // 2. Subir a AzuraCast
-        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '🚀 Subiendo a AzuraCast...');
+        // 2. Subir
+        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '🚀 Subiendo a la radio...');
         await uploadToAzuraCast(rutaArchivo, `${cancion.name}.mp3`);
 
-        // 3. Limpiar archivo temporal
-        if (fs.existsSync(rutaArchivo)) {
-            fs.unlinkSync(rutaArchivo);
-        }
+        // 3. Registrar saludo y limpiar
+        ultimoSaludo = { nombre: nombreOyente, texto: `pidió ${cancion.name}`, fecha: new Date() };
+        if (fs.existsSync(rutaArchivo)) fs.unlinkSync(rutaArchivo);
 
-        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, `✅ ¡${cancion.name} ya está en la emisora!`);
+        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, `✅ ¡${cancion.name} ya está en la emisora!\nSalomé la presentará pronto.`);
 
     } catch (error) {
         console.error(error);
-        ctx.reply('❌ Hubo un fallo en el proceso. Revisa los logs.');
+        ctx.reply('❌ Error al procesar el pedido.');
     }
 });
 
+// Manejo de mensajes de texto (Saludos normales)
+bot.on('text', async (ctx) => {
+    if (ctx.message.text.startsWith('/')) return; // Ignorar otros comandos
+
+    const nombreOyente = ctx.from.first_name || "un oyente";
+    ultimoSaludo = { nombre: nombreOyente, texto: ctx.message.text, fecha: new Date() };
+    
+    await ctx.reply(`¡Hola ${nombreOyente}! Recibido, Salomé te enviará un saludo en breve. 🎙️`);
+});
+
+// ======= 5. ARRANQUE =======
+
 bot.launch().then(() => console.log('🚀 Bot de La Fronterísima en marcha...'));
+
+app.listen(3000, () => {
+    console.log("🌐 Servidor Express en puerto 3000");
+});
 
 // Manejo de cierre limpio
 process.once('SIGINT', () => bot.stop('SIGINT'));
