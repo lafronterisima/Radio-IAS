@@ -129,7 +129,6 @@ bot.on('message', async (msg) => {
 });
 
 
-
 async function obtenerAhoraSuena() {
     try {
         const res = await axios.get(`${AZURA_BASE}/nowplaying`, { timeout: 4000 });
