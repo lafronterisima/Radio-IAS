@@ -8,34 +8,39 @@ const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
 const ffmpeg = require('fluent-ffmpeg');
 
+// 1. CORRECCIÓN: SDK de Azure definido para AutoRedactor
+const sdk = require("microsoft-cognitiveservices-speech-sdk");
+
 const app = express();
+app.use(express.json());
 
-// ======= 1. CONFIGURACIÓN =======
+// ======= CONFIGURACIÓN DE LLAVES =======
 const safeTrim = (val) => val ? val.trim() : "";
-const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
-
 const KEYS = {
+    AZURE: safeTrim(process.env.AZURE_SPEECH_KEY),
+    AZURE_REGION: safeTrim(process.env.AZURE_REGION),
     AZURA: safeTrim(process.env.AZURA_KEY),
-    STATION_ID: sID,
-    TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN),
+    STATION_ID: (process.env.STATION_ID || "24").replace(/\D/g, ""),
+    TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN)
 };
 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
-// ======= 2. INICIALIZACIÓN =======
+// 2. CORRECCIÓN: Variable definida para AutoReporte
+let ultimoSaludo = { nombre: "Oyente", texto: "¡Sintonizados!", fecha: new Date() };
+
+// ======= INICIALIZACIÓN TELEGRAM =======
+// Si da error 409, asegúrate de no tener el bot prendido en tu PC local.
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 
-// ======= 3. FUNCIONES DE APOYO =======
+// ======= FUNCIONES DE APOYO =======
 
-// Búsqueda nativa sin librerías externas
 async function buscarEnDailymotion(query) {
     try {
         console.log(`🔎 Buscando en Dailymotion: ${query}`);
         const url = `https://api.dailymotion.com/videos?search=${encodeURIComponent(query)}&fields=id,title&limit=1`;
         const res = await axios.get(url);
-        
         if (!res.data.list || res.data.list.length === 0) return null;
-
         return {
             id: res.data.list[0].id,
             title: res.data.list[0].title,
@@ -49,15 +54,19 @@ async function buscarEnDailymotion(query) {
 
 async function descargarYSubirAzura(video) {
     const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
-    // Dejamos el nombre del archivo limpio, sin carpetas
     const nombreFinal = `pedido_${Date.now()}.mp3`;
 
     try {
-        console.log(`🎙️ Procesando audio para Raíz: ${video.title}`);
+        console.log(`🎙️ Extrayendo audio: ${video.title}`);
 
-        // 1. Conversión con FFmpeg
+        // Para evitar el error "Invalid data", usamos un User-Agent y 
+        // dejamos que FFmpeg intente capturar el stream. 
+        // Si estás en Render/Koyeb, asegúrate de tener ffmpeg disponible.
         await new Promise((resolve, reject) => {
             ffmpeg(video.url)
+                .inputOptions([
+                    '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                ])
                 .toFormat('mp3')
                 .audioBitrate(192)
                 .on('error', (err) => reject(err))
@@ -65,21 +74,16 @@ async function descargarYSubirAzura(video) {
                 .save(tempFile);
         });
 
-        console.log(`📤 Subiendo a la CARPETA RAÍZ...`);
+        console.log(`📤 Subiendo a la raíz de AzuraCast...`);
 
         const form = new FormData();
-        
-        // --- LA CLAVE PARA LA RAÍZ ---
-        // 1. El path debe ir vacío o ser "/"
-        form.append('path', ''); 
-
-        // 2. El filename NO debe tener rutas, solo el nombre del archivo
+        form.append('path', ''); // Vacío para subir a la raíz
         form.append('file', fs.createReadStream(tempFile), {
-            filename: nombreFinal, 
+            filename: nombreFinal,
             contentType: 'audio/mpeg'
         });
 
-        const resAzura = await axios.post(AZURA_API_UPLOAD, form, {
+        await axios.post(AZURA_API_UPLOAD, form, {
             headers: {
                 ...form.getHeaders(),
                 "X-API-Key": KEYS.AZURA
@@ -89,11 +93,11 @@ async function descargarYSubirAzura(video) {
             timeout: 300000 
         });
 
-        console.log(`✅ ¡Subida a raíz exitosa!`);
+        console.log(`✅ ¡Éxito! Archivo subido.`);
         return true;
 
     } catch (err) {
-        console.error("❌ Error en subida a raíz:", err.response?.data || err.message);
+        console.error("❌ Error en subida:", err.message);
         return false;
     } finally {
         if (fs.existsSync(tempFile)) {
@@ -102,30 +106,34 @@ async function descargarYSubirAzura(video) {
     }
 }
 
-// ======= 4. LÓGICA DE TELEGRAM =======
+// ======= LÓGICA DE TELEGRAM =======
 
 bot.on('message', async (msg) => {
-    if (msg.text && msg.text.startsWith('/pedir ')) {
+    if (!msg.text) return;
+    const chatId = msg.chat.id;
+
+    if (msg.text.startsWith('/pedir ')) {
         const busqueda = msg.text.replace('/pedir ', '').trim();
-        bot.sendMessage(msg.chat.id, `🎶 Buscando "${busqueda}"...`);
+        bot.sendMessage(chatId, `🎶 Buscando "${busqueda}"...`);
 
         const video = await buscarEnDailymotion(busqueda);
-        
         if (video) {
-            bot.sendMessage(msg.chat.id, `⏳ Procesando: "${video.title}"...`);
+            bot.sendMessage(chatId, `⏳ Procesando: "${video.title}"...`);
             const exito = await descargarYSubirAzura(video);
-            
-            if (exito) {
-                bot.sendMessage(msg.chat.id, `✅ ¡Listo! Ya está en la radio.`);
-            } else {
-                bot.sendMessage(msg.chat.id, `❌ Error al subir a la radio. Revisa si la carpeta 'Musica_Nueva' existe.`);
-            }
+            if (exito) bot.sendMessage(chatId, `✅ ¡Listo! Ya está en la radio.`);
+            else bot.sendMessage(chatId, `❌ No se pudo subir el audio.`);
         } else {
-            bot.sendMessage(msg.chat.id, `❌ No encontré la canción.`);
+            bot.sendMessage(chatId, `❌ No encontré la canción.`);
         }
+    } else {
+        // Guardamos el saludo para Salomé
+        ultimoSaludo = { 
+            nombre: msg.from.first_name || "Oyente", 
+            texto: msg.text, 
+            fecha: new Date() 
+        };
     }
 });
-
 
 
 async function obtenerAhoraSuena() {
