@@ -1,154 +1,128 @@
 require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
-const fs = require("fs");
-const path = require("path");
-const FormData = require("form-data");
-const TelegramBot = require('node-telegram-bot-api');
-const { pipeline } = require('stream/promises');
-const ffmpeg = require('fluent-ffmpeg');
-
-const ytdl = require('@distube/ytdl-core');
-
-// 1. CORRECCIÓN: SDK de Azure definido para AutoRedactor
 const sdk = require("microsoft-cognitiveservices-speech-sdk");
+const fs = require("fs");
+const FormData = require("form-data");
+const { exec } = require("child_process");
+const path = require("path");
+const TelegramBot = require('node-telegram-bot-api');
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
 
-// ======= CONFIGURACIÓN DE LLAVES =======
+// ======= 1. CONFIGURACIÓN =======
 const safeTrim = (val) => val ? val.trim() : "";
+const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
+
 const KEYS = {
+    GEMINI: safeTrim(process.env.GOOGLE_API_KEY),
+    GROQ: safeTrim(process.env.GROQ_API_KEY),
     AZURE: safeTrim(process.env.AZURE_SPEECH_KEY),
     AZURE_REGION: safeTrim(process.env.AZURE_REGION),
     AZURA: safeTrim(process.env.AZURA_KEY),
-    STATION_ID: (process.env.STATION_ID || "24").replace(/\D/g, ""),
-    TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN)
+    STATION_ID: sID,
+    PASSWORD: safeTrim(process.env.APP_PASSWORD),
+    TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN),
+    JAMENDO_ID: safeTrim(process.env.JAMENDO_CLIENT_ID) || "c230e1f4"
 };
 
-const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
+const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
+const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
-// 2. CORRECCIÓN: Variable definida para AutoReporte
-let ultimoSaludo = { nombre: "Oyente", texto: "¡Sintonizados!", fecha: new Date() };
-
-// ======= INICIALIZACIÓN TELEGRAM =======
-// Si da error 409, asegúrate de no tener el bot prendido en tu PC local.
+// ======= 2. TELEGRAM (SALUDOS Y PEDIDOS) =======
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 
-// ======= FUNCIONES DE APOYO =======
+let ultimoSaludo = { nombre: "", texto: "", fecha: null };
+let cancionRecienDescubierta = null;
 
-async function buscarEnDailymotion(query) {
-    try {
-        console.log(`🔎 Buscando en Dailymotion: ${query}`);
-        const url = `https://api.dailymotion.com/videos?search=${encodeURIComponent(query)}&fields=id,title&limit=1`;
-        const res = await axios.get(url);
-        if (!res.data.list || res.data.list.length === 0) return null;
-        return {
-            id: res.data.list[0].id,
-            title: res.data.list[0].title,
-            url: `https://www.dailymotion.com/video/${res.data.list[0].id}`
-        };
-    } catch (e) {
-        console.error("❌ Error API Dailymotion:", e.message);
-        return null;
-    }
-}
-
-sync function descargarYSubirAzura(video) {
-    const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
-    const nombreFinal = `pedido_${Date.now()}.mp3`;
-
-    try {
-        console.log(`🎙️ Procesando audio de Dailymotion: ${video.title}`);
-
-        // Usamos FFmpeg con parámetros de reconexión para streams m3u8 de Dailymotion
-        await new Promise((resolve, reject) => {
-            ffmpeg(video.url)
-                .inputOptions([
-                    '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    '-reconnect', '1',
-                    '-reconnect_streamed', '1',
-                    '-reconnect_delay_max', '5'
-                ])
-                .audioCodec('libmp3lame')
-                .audioBitrate(192)
-                .toFormat('mp3')
-                .on('start', () => console.log("⚙️ FFmpeg empezando a convertir..."))
-                .on('error', (err) => {
-                    console.error("❌ Error FFmpeg:", err.message);
-                    reject(err);
-                })
-                .on('end', () => {
-                    console.log("✅ MP3 generado.");
-                    resolve();
-                })
-                .save(tempFile);
-        });
-
-        if (!fs.existsSync(tempFile) || fs.statSync(tempFile).size < 1000) {
-            throw new Error("El archivo generado está vacío.");
-        }
-
-        console.log(`📤 Subiendo a la raíz de AzuraCast...`);
-        const form = new FormData();
-        form.append('path', ''); 
-        form.append('file', fs.createReadStream(tempFile), {
-            filename: nombreFinal,
-            contentType: 'audio/mpeg'
-        });
-
-        await axios.post(AZURA_API_UPLOAD, form, {
-            headers: {
-                ...form.getHeaders(),
-                "X-API-Key": KEYS.AZURA
-            },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            timeout: 300000 
-        });
-
-        console.log(`🚀 ¡Subida exitosa!`);
-        return true;
-
-    } catch (err) {
-        console.error("❌ Fallo total en descarga/subida:", err.message);
-        return false; // Retornamos false para que el bot avise al usuario en lugar de morir
-    } finally {
-        if (fs.existsSync(tempFile)) {
-            try { fs.unlinkSync(tempFile); } catch (e) {}
-        }
-    }
-}
-
-// ======= LÓGICA DE TELEGRAM =======
+bot.on('polling_error', () => {}); 
 
 bot.on('message', async (msg) => {
     if (!msg.text) return;
-    const chatId = msg.chat.id;
 
     if (msg.text.startsWith('/pedir ')) {
         const busqueda = msg.text.replace('/pedir ', '').trim();
-        bot.sendMessage(chatId, `🎶 Buscando "${busqueda}"...`);
+        if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime el nombre de la canción! 🎵");
 
-        const video = await buscarEnDailymotion(busqueda);
-        if (video) {
-            bot.sendMessage(chatId, `⏳ Procesando: "${video.title}"...`);
-            const exito = await descargarYSubirAzura(video);
-            if (exito) bot.sendMessage(chatId, `✅ ¡Listo! Ya está en la radio.`);
-            else bot.sendMessage(chatId, `❌ No se pudo subir el audio.`);
+        bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}"...`);
+        const track = await buscarMusicaJamendo(busqueda, true); 
+
+        if (track) {
+            const exito = await descargarYSubirAzura(track);
+            if (exito) {
+                ultimoSaludo = { 
+                    nombre: msg.from.first_name || "un oyente", 
+                    texto: `pidió la canción "${track.info}"`, 
+                    fecha: new Date() 
+                };
+                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Salomé la presentará pronto.`);
+            } else {
+                bot.sendMessage(msg.chat.id, `❌ Error al procesar el archivo.`);
+            }
         } else {
-            bot.sendMessage(chatId, `❌ No encontré la canción.`);
+            bot.sendMessage(msg.chat.id, `❌ No encontré esa canción.`);
         }
-    } else {
-        // Guardamos el saludo para Salomé
-        ultimoSaludo = { 
-            nombre: msg.from.first_name || "Oyente", 
-            texto: msg.text, 
-            fecha: new Date() 
+        return;
+    }
+
+    if (msg.text === '/descubrir') {
+        bot.sendMessage(msg.chat.id, "🔎 Buscando un éxito rumbero...");
+        const track = await buscarMusicaJamendo('latin', false);
+        if (track) {
+            await descargarYSubirAzura(track);
+            cancionRecienDescubierta = track.info;
+            bot.sendMessage(msg.chat.id, `✅ ¡Nuevo estreno! "${track.info}".`);
+        }
+        return;
+    }
+
+    if (!msg.text.startsWith('/')) {
+        ultimoSaludo = {
+            nombre: msg.from.first_name || "un oyente",
+            texto: msg.text,
+            fecha: new Date()
         };
+        bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo saldrá al aire. 🎙️");
     }
 });
 
+// ======= 3. FUNCIONES DE APOYO =======
+
+async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
+    const generos = ['salsa', 'reggaeton', 'bachata', 'vallenato'];
+    let parametro = esBusquedaEspecifica ? `search=${encodeURIComponent(query)}` : `fuzzytags=${generos[Math.floor(Math.random() * generos.length)]}&order=ratingdesc`;
+    const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&durationbetween=120_600&${parametro}`;
+    try {
+        const res = await axios.get(url, { timeout: 8000 });
+        if (res.data.results?.length > 0) {
+            const t = res.data.results[0];
+            return { url: t.audio, info: `${t.name} de ${t.artist_name}` };
+        }
+    } catch (e) { return null; }
+}
+
+async function descargarYSubirAzura(track) {
+    const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    try {
+        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
+        const writer = fs.createWriteStream(tempFile);
+        return new Promise((resolve) => {
+            response.data.pipe(writer);
+            writer.on('finish', async () => {
+                try {
+                    const form = new FormData();
+                    form.append('file', fs.createReadStream(tempFile), { filename: "estreno_jamendo.mp3" });
+                    form.append('path', `Musica_Nueva/estreno_jamendo.mp3`);
+                    await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA } });
+                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(true);
+                } catch (err) { resolve(false); }
+            });
+        });
+    } catch (e) { return false; }
+}
 
 async function obtenerAhoraSuena() {
     try {
