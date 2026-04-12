@@ -239,9 +239,12 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 
 async function obtenerNoticia() {
     try {
-        const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo", {
-            headers: { 'User-Agent': 'Mozilla/5.0' },
-            timeout: 5000
+        const res = await axios.get("https://es.euronews.com/rss?format=itunes&level=vertical&name=mundo", {
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/xml, text/xml, */*'
+            },
+            timeout: 7000
         });
         const match = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
         if (match && match.length > 1) {
