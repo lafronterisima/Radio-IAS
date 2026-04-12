@@ -136,6 +136,12 @@ function limpiarTextoIA(t) {
 async function redactarIA(prompt) {
     const systemMsg = "Eres Salomé, locutora rumbera de La Fronterísima en Cali. Tu estilo es alegre, con sabor, usas jerga caleña suave (ve, mirá, oís, que todo bien). Eres breve, máximo 45 palabras. No uses emojis ni menciones asteriscos.";
     
+    // Verificación previa de llaves
+    if (!KEYS.GROQ && !KEYS.GEMINI) {
+        console.error("❌ ERROR CRÍTICO: No hay llaves de IA (GROQ_API_KEY o GOOGLE_API_KEY) configuradas.");
+        return "¡Veee! Sintonizas La Fronterísima, la radio con más sabor en Cali.";
+    }
+
     try {
         console.log("🤖 Solicitando guion a GROQ...");
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
@@ -145,19 +151,28 @@ async function redactarIA(prompt) {
         }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
 
         const texto = res.data?.choices?.[0]?.message?.content;
-        if (!texto) throw new Error("GROQ vacío");
+        if (!texto) throw new Error("La respuesta de GROQ llegó vacía.");
         return limpiarTextoIA(texto);
 
     } catch (e) {
-        console.error("⚠️ Fallback a GEMINI...");
+        // Log detallado de Groq
+        const msgError = e.response?.data?.error?.message || e.message;
+        console.error(`⚠️ GROQ falló (${e.response?.status || 'Error'}): ${msgError}`);
+        
+        console.log("🔄 Intentando Fallback con GEMINI...");
         try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
             const res = await axios.post(url, { 
                 contents: [{ parts: [{ text: `Instrucción: ${systemMsg}\n\nContexto: ${prompt}` }] }] 
             }, { timeout: 10000 });
+
             const textoGemini = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!textoGemini) throw new Error("La respuesta de GEMINI llegó vacía.");
+
             return limpiarTextoIA(textoGemini);
         } catch (err) {
+            const msgGemini = err.response?.data?.error?.message || err.message;
+            console.error(`❌ GEMINI también falló (${err.response?.status || 'Error'}): ${msgGemini}`);
             return "¡Veee, qué todo bien! Sintonizas La Fronterísima, la radio que te pone a gozar en Cali.";
         }
     }
@@ -165,10 +180,12 @@ async function redactarIA(prompt) {
 
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
-        if (!KEYS.AZURE) return reject("Falta AZURE_SPEECH_KEY");
+        if (!KEYS.AZURE) return reject(new Error("Falta la llave AZURE_SPEECH_KEY en las variables de entorno."));
+        
         const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
         config.speechSynthesisVoiceName = "es-CO-SalomeNeural";
         const synth = new sdk.SpeechSynthesizer(config);
+        
         const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
             <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.4" xmlns:mstts="https://www.w3.org/2001/mstts">
             <prosody rate="+8%">${texto}</prosody></mstts:express-as></voice></speak>`;
@@ -178,8 +195,15 @@ async function generarVoz(texto, archivoDestino) {
             if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
                 fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
                 resolve();
-            } else reject("Error Azure TTS");
-        }, e => { synth.close(); reject(e); });
+            } else {
+                // Capturamos el detalle del error de Azure
+                const detalle = r.errorDetails || "Razón desconocida";
+                reject(new Error(`Error en Azure TTS: ${detalle}`));
+            }
+        }, e => { 
+            synth.close(); 
+            reject(new Error(`Fallo de conexión con Azure: ${e}`)); 
+        });
     });
 }
 
