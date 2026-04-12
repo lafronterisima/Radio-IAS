@@ -106,23 +106,56 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
     try {
+        console.log(`📥 Descargando: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
+        
         return new Promise((resolve) => {
             response.data.pipe(writer);
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
-                    form.append('file', fs.createReadStream(tempFile), { filename: "estreno_jamendo.mp3" });
-                    form.append('path', `Musica_Nueva/estreno_jamendo.mp3`);
-                    await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA } });
-                    if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    // Usamos un nombre único basado en el tiempo para que no se sobrescriban en la raíz
+                    const nombreArchivo = `pedido_${Date.now()}.mp3`;
+
+                    // 1. El archivo físico
+                    form.append('file', fs.createReadStream(tempFile), { filename: nombreArchivo });
+                    
+                    // 2. El path vacío indica la RAIZ en AzuraCast
+                    form.append('path', nombreArchivo); 
+
+                    console.log(`📤 Subiendo a raíz de AzuraCast: ${nombreArchivo}`);
+
+                    await axios.post(AZURA_API_UPLOAD, form, { 
+                        headers: { 
+                            ...form.getHeaders(), 
+                            "X-API-Key": KEYS.AZURA 
+                        },
+                        // Configuraciones para subidas pesadas o lentas
+                        maxContentLength: Infinity,
+                        maxBodyLength: Infinity,
+                        timeout: 90000 // 90 segundos de espera
+                    });
+
+                    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
-                } catch (err) { resolve(false); }
+                } catch (err) {
+                    console.error("❌ Error subiendo a Azura:", err.message);
+                    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                    resolve(false);
+                }
+            });
+            writer.on('error', () => {
+                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                resolve(false);
             });
         });
-    } catch (e) { return false; }
+    } catch (e) { 
+        console.error("❌ Error descarga Jamendo:", e.message);
+        return false; 
+    }
 }
+                   
 
 async function obtenerAhoraSuena() {
     try {
@@ -277,7 +310,7 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
     
     // Reporte de clima/noticias cada 15 minutos
-    setTimeout(autoReporte, 5000);
+    setTimeout(autoReporte, 10000);
     setInterval(autoReporte, 15 * 60 * 1000);
 
     // Contenido variado (Redactor_ia) cada 50 minutos
