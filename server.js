@@ -38,7 +38,7 @@ if (KEYS.TELEGRAM_TOKEN) {
     bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
     bot.on('polling_error', (err) => {
         if (err.code === 'ETELEGRAM' && err.message.includes('409 Conflict')) {
-            console.log("⚠️ Conflicto de Telegram: Otra instancia está activa. Reintentando...");
+            console.log("⚠️ Conflicto de Telegram: Otra instancia está activa.");
         }
     });
 } else {
@@ -50,24 +50,41 @@ let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 if (bot) {
     bot.on('message', async (msg) => {
         if (!msg.text || msg.from.is_bot) return;
+
+        // COMANDO DE PEDIDO
         if (msg.text.startsWith('/pedir ')) {
             const busqueda = msg.text.replace('/pedir ', '').trim();
             if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime el nombre de la canción! 🎵");
-            bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}"...`);
+            
+            bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}" en Jamendo...`);
             const track = await buscarMusicaJamendo(busqueda, true); 
+            
             if (track) {
                 const exito = await descargarYSubirAzura(track);
                 if (exito) {
-                    await solicitarCancionEnAzura(6991); 
-                    ultimoSaludo = { nombre: msg.from.first_name || "oyente", texto: `pidió ${track.info}`, fecha: new Date() };
-                    bot.sendMessage(msg.chat.id, `✅ ¡Subida! Salomé la presentará pronto.`);
-                } else bot.sendMessage(msg.chat.id, `❌ Error al subir a la radio.`);
-            } else bot.sendMessage(msg.chat.id, `❌ No la encontré.`);
+                    // Retraso de 5 segundos para que Azura indexe el archivo antes de solicitarlo
+                    setTimeout(async () => {
+                        const solicitado = await solicitarCancionEnAzura(6991);
+                        if (solicitado) {
+                            ultimoSaludo = { nombre: msg.from.first_name || "oyente", texto: `pidió ${track.info}`, fecha: new Date() };
+                            bot.sendMessage(msg.chat.id, `✅ ¡Subida! Salomé la presentará pronto.`);
+                        } else {
+                            bot.sendMessage(msg.chat.id, `⚠️ Archivo subido, pero la estación no acepta pedidos ahora.`);
+                        }
+                    }, 5000);
+                } else {
+                    bot.sendMessage(msg.chat.id, `❌ Error al subir a la radio.`);
+                }
+            } else {
+                bot.sendMessage(msg.chat.id, `❌ No encontré esa canción.`);
+            }
             return;
         }
+
+        // SALUDO NORMAL
         if (!msg.text.startsWith('/')) {
             ultimoSaludo = { nombre: msg.from.first_name || "oyente", texto: msg.text, fecha: new Date() };
-            bot.sendMessage(msg.chat.id, "¡Saludo recibido! 🎙️");
+            bot.sendMessage(msg.chat.id, "¡Saludo recibido! Salomé lo leerá en el próximo reporte. 🎙️");
         }
     });
 }
@@ -89,21 +106,31 @@ async function solicitarCancionEnAzura(mediaId) {
     try {
         await axios.post(`${AZURA_BASE}/request/${mediaId}`, {}, { headers: { "X-API-Key": KEYS.AZURA } });
         return true;
-    } catch (error) { return false; }
+    } catch (error) { 
+        console.error("Error solicitud:", error.response?.data || error.message);
+        return false; 
+    }
 }
 
 async function descargarYSubirAzura(track) {
-    const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    const tempFile = path.join(__dirname, `tmp_${Date.now()}.mp3`);
     try {
         const res = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         await pipeline(res.data, fs.createWriteStream(tempFile));
+        
         const form = new FormData();
         form.append('path', 'Musica_Nueva'); 
         form.append('file', fs.createReadStream(tempFile), { filename: `Musica_Nueva/pedido_actual.mp3` });
-        await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, timeout: 120000 });
+        
+        await axios.post(AZURA_API_UPLOAD, form, { 
+            headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, 
+            timeout: 120000 
+        });
+        
         if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         return true;
     } catch (err) {
+        console.error("Error descarga/subida:", err.message);
         if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
         return false;
     }
@@ -117,24 +144,26 @@ async function obtenerAhoraSuena() {
     } catch (e) { return { artista: "varios", titulo: "éxitos" }; }
 }
 
-// ======= 4. IA Y VOZ (EL CORAZÓN) =======
+// ======= 4. IA Y VOZ =======
 
 async function redactarIA(prompt) {
-    if (!KEYS.GROQ && !KEYS.GEMINI) return "Sintonizas La Fronterísima, Cali es salsa.";
+    const systemMsg = "Eres Salomé, locutora rumbera de La Fronterísima en Cali. Eres alegre, usas jerga caleña suave y eres breve (máximo 45 palabras).";
     try {
-        // Intento con GROQ
+        // Prioridad GROQ
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
             model: "llama-3.1-8b-instant",
-            messages: [{ role: "system", content: "Eres Salomé, locutora rumbera de Cali. 45 palabras." }, { role: "user", content: prompt }]
+            messages: [{ role: "system", content: systemMsg }, { role: "user", content: prompt }]
         }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
-        return res.data.choices[0].message.content.replace(/[*#_]/g, '').trim();
+        return res.data.choices[0].message.content.replace(/[*#_~]/g, '').trim();
     } catch (e) {
         try {
-            // Intento con GEMINI
+            // Fallback GEMINI
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-            const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] });
-            return res.data.candidates[0].content.parts[0].text.replace(/[*#_]/g, '').trim();
-        } catch (err) { return "La radio que te pone a gozar, La Fronterísima."; }
+            const res = await axios.post(url, { 
+                contents: [{ parts: [{ text: `${systemMsg} -> ${prompt}` }] }] 
+            });
+            return res.data.candidates[0].content.parts[0].text.replace(/[*#_~]/g, '').trim();
+        } catch (err) { return "¡Sintonizas La Fronterísima, la radio que te pone a gozar en Cali!"; }
     }
 }
 
@@ -144,6 +173,7 @@ async function generarVoz(texto, archivoDestino) {
         const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
         config.speechSynthesisVoiceName = "es-CO-SalomeNeural";
         const synth = new sdk.SpeechSynthesizer(config);
+        
         const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
             <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.4" xmlns:mstts="https://www.w3.org/2001/mstts">
             <prosody rate="+8%">${texto}</prosody></mstts:express-as></voice></speak>`;
@@ -160,22 +190,32 @@ async function generarVoz(texto, archivoDestino) {
 
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
-    const fondo = "fondo.mp3";
+    const fondo = "fondo.mp3"; // Asegúrate de tener este archivo en la raíz
+    
     let cmd = (conFondo && fs.existsSync(fondo))
-        ? `ffmpeg -y -i ${fondo} -i ${archivoVoz} -filter_complex "[0:a]volume=0.08,atrim=duration=35,aresample=44100[bg];[1:a]volume=1.8,aresample=44100[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
-        : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6,aresample=44100" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+        ? `ffmpeg -y -i "${fondo}" -i "${archivoVoz}" -filter_complex "[0:a]volume=0.08,atrim=duration=35[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k "${tempSalida}"`
+        : `ffmpeg -y -i "${archivoVoz}" -af "volume=1.6" -c:a libmp3lame -b:a 128k "${tempSalida}"`;
 
     return new Promise((resolve) => {
-        exec(cmd, async () => {
+        exec(cmd, async (error) => {
+            if (error) {
+                console.error("Error FFmpeg:", error);
+                return resolve(false);
+            }
             try {
-                if (!fs.existsSync(tempSalida)) throw new Error("FFmpeg falló");
                 const form = new FormData();
                 form.append('file', fs.createReadStream(tempSalida), { filename: nombreFinal });
                 form.append('path', ''); 
-                await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, timeout: 60000 });
+                await axios.post(AZURA_API_UPLOAD, form, { 
+                    headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, 
+                    timeout: 60000 
+                });
                 [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
                 resolve(true);
-            } catch (e) { resolve(false); }
+            } catch (e) { 
+                console.error("Error subida final:", e.message);
+                resolve(false); 
+            }
         });
     });
 }
@@ -184,37 +224,43 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 
 async function autoReporte() {
     try {
-        console.log("🎙️ Ejecutando AutoReporte...");
         const np = await obtenerAhoraSuena();
         const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
-        let saludo = (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 15*60*1000)) ? `Saludo: ${ultimoSaludo.nombre} dice ${ultimoSaludo.texto}` : "";
+        let saludo = (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 15*60*1000)) ? `Un saludo para ${ultimoSaludo.nombre} que nos escribió.` : "";
         
-        const guion = await redactarIA(`Hora: ${hora}. Música: ${np.titulo}. ${saludo}. Guion alegre de 40 palabras.`);
+        const guion = await redactarIA(`Son las ${hora}. Está sonando ${np.titulo}. ${saludo} ¡Dales mucha energía!`);
         const pathVoz = `v_auto_${Date.now()}.mp3`;
         
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "dj_auto.mp3", true);
         ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 listo.");
+        console.log("✅ dj_auto.mp3 actualizado.");
     } catch (e) { console.error("❌ Error AutoReporte:", e.message); }
 }
 
 async function autoRedactorIA() {
     try {
-        console.log("🎙️ Ejecutando AutoRedactor...");
-        const guion = await redactarIA("Dame un dato curioso de la salsa o un mensaje de alegría para Cali.");
+        const guion = await redactarIA("Cuéntanos un dato curioso de un artista de salsa o un mensaje positivo para la gente de Cali.");
         const pathVoz = `v_red_${Date.now()}.mp3`;
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "Redactor_ia.mp3", true);
-        console.log("✅ Redactor_ia.mp3 listo.");
+        console.log("✅ Redactor_ia.mp3 actualizado.");
     } catch (e) { console.error("❌ Error AutoRedactor:", e.message); }
 }
 
+// ======= 6. RUTAS API =======
+
+app.get("/health", (req, res) => res.status(200).send("OK"));
+
+app.post('/login', (req, res) => {
+    if (req.body.password === KEYS.PASSWORD) res.json({ success: true });
+    else res.status(401).json({ success: false });
+});
+
 app.post("/redactar-guion", async (req, res) => {
     try {
-        const promptManual = `Salomé de La Fronterísima. Guion alegre sobre: ${req.body.idea}. Máximo 40 palabras.`;
-        const textoIa = await redactarIA(promptManual);
-        res.json({ guion: textoIa }); 
+        const guion = await redactarIA(`Guion alegre sobre: ${req.body.idea}`);
+        res.json({ guion }); 
     } catch (e) { res.json({ guion: "¡Sintonizas La Fronterísima!" }); }
 });
 
@@ -227,26 +273,17 @@ app.post("/procesar-locucion", async (req, res) => {
     } catch (e) { res.status(500).send("Error"); }
 });
 
-app.post('/login', (req, res) => {
-    if (req.body.password === KEYS.PASSWORD) res.json({ success: true });
-    else res.status(401).json({ success: false });
-
-// ======= 6. INICIO =======
-// ======= 6. INICIO CORREGIDO PARA KOYEB =======
+// ======= 7. INICIO DEL SERVIDOR =======
 const PORT = process.env.PORT || 8000;
 
-// Mover el health check arriba para que responda de inmediato
-app.get("/health", (req, res) => res.status(200).send("OK"));
-
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
+    console.log(`🚀 La Fronterísima Pro activa en puerto ${PORT}`);
     
-    // El health check ya pasó, ahora intentamos las automatizaciones con calma
+    // Ejecución inicial tras 10 segundos para no saturar el arranque
     setTimeout(() => {
-        console.log("🛠️ Iniciando primera ejecución de prueba...");
-        autoReporte().catch(e => console.log("Fallo inicial reporte:", e.message));
-        autoRedactorIA().catch(e => console.log("Fallo inicial redactor:", e.message));
-    }, 15000); // Esperar 15 segundos después de encender
+        autoReporte().catch(() => {});
+        autoRedactorIA().catch(() => {});
+    }, 10000);
 
     setInterval(autoReporte, 15 * 60 * 1000);
     setInterval(autoRedactorIA, 50 * 60 * 1000);
