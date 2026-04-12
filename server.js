@@ -35,12 +35,25 @@ const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 // ======= 2. TELEGRAM CON MANEJO DE CONFLICTOS =======
 let bot;
 if (KEYS.TELEGRAM_TOKEN) {
-    bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
-    bot.on('polling_error', (err) => {
-        if (err.code === 'ETELEGRAM' && err.message.includes('409 Conflict')) {
-            console.log("⚠️ Conflicto de Telegram: Otra instancia está activa.");
-        }
+    // Agregamos un pequeño delay al arranque para que la instancia anterior muera
+    bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { 
+        polling: {
+            autoStart: true,
+            params: { timeout: 30 } // Aumentamos el tiempo de espera
+        } 
     });
+
+    bot.on('polling_error', (err) => {
+        // Si es conflicto 409, lo manejamos silenciosamente para no saturar la consola
+        if (err.code === 'ETELEGRAM' && err.message.includes('409 Conflict')) {
+            // Solo imprimimos un punto o nada, para saber que está esperando su turno
+            process.stdout.write("."); 
+            return;
+        }
+        console.error("❌ Error de Telegram:", err.code || err.message);
+    });
+
+    console.log("✅ Bot de Telegram inicializado (esperando turno de conexión...)");
 } else {
     console.error("❌ ERROR: TELEGRAM_TOKEN no configurado.");
 }
