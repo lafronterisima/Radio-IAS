@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
@@ -31,15 +32,14 @@ const KEYS = {
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
-// ======= 2. TELEGRAM (SALUDOS Y PEDIDOS) =======
+// ======= 2. VARIABLES DE ESTADO =======
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
-
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
-let cancionRecienDescubierta = null;
-let produciendoVoz = false;
+let produciendoVoz = false; // Bloqueo para evitar colisiones de IA
 
 bot.on('polling_error', () => {}); 
 
+// ======= 3. TELEGRAM =======
 bot.on('message', async (msg) => {
     if (!msg.text) return;
 
@@ -68,17 +68,6 @@ bot.on('message', async (msg) => {
         return;
     }
 
-    if (msg.text === '/descubrir') {
-        bot.sendMessage(msg.chat.id, "🔎 Buscando un éxito rumbero...");
-        const track = await buscarMusicaJamendo('latin', false);
-        if (track) {
-            await descargarYSubirAzura(track);
-            cancionRecienDescubierta = track.info;
-            bot.sendMessage(msg.chat.id, `✅ ¡Nuevo estreno! "${track.info}".`);
-        }
-        return;
-    }
-
     if (!msg.text.startsWith('/')) {
         ultimoSaludo = {
             nombre: msg.from.first_name || "un oyente",
@@ -89,12 +78,12 @@ bot.on('message', async (msg) => {
     }
 });
 
-// ======= 3. FUNCIONES DE APOYO =======
+// ======= 4. FUNCIONES DE APOYO =======
 
 async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     const generos = ['salsa', 'reggaeton', 'bachata', 'vallenato'];
     let parametro = esBusquedaEspecifica ? `search=${encodeURIComponent(query)}` : `fuzzytags=${generos[Math.floor(Math.random() * generos.length)]}&order=ratingdesc`;
-    const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&durationbetween=120_600&${parametro}`;
+    const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&${parametro}`;
     try {
         const res = await axios.get(url, { timeout: 8000 });
         if (res.data.results?.length > 0) {
@@ -105,9 +94,8 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 }
 
 async function descargarYSubirAzura(track) {
-    const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    const tempFile = path.join(__dirname, `tmp_${Date.now()}.mp3`);
     try {
-        console.log(`📥 Descargando: ${track.info}`);
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
         
@@ -116,47 +104,29 @@ async function descargarYSubirAzura(track) {
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
-                    // Usamos un nombre único basado en el tiempo para que no se sobrescriban en la raíz
                     const nombreArchivo = `pedido_${Date.now()}.mp3`;
 
-                    // 1. El archivo físico
                     form.append('file', fs.createReadStream(tempFile), { filename: nombreArchivo });
-                    
-                    // 2. El path vacío indica la RAIZ en AzuraCast
-                    form.append('path', nombreArchivo); 
-
-                    console.log(`📤 Subiendo a raíz de AzuraCast: ${nombreArchivo}`);
+                    form.append('path', nombreArchivo); // SUBIDA A LA RAIZ
 
                     await axios.post(AZURA_API_UPLOAD, form, { 
-                        headers: { 
-                            ...form.getHeaders(), 
-                            "X-API-Key": KEYS.AZURA 
-                        },
-                        // Configuraciones para subidas pesadas o lentas
+                        headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
                         maxContentLength: Infinity,
                         maxBodyLength: Infinity,
-                        timeout: 90000 // 90 segundos de espera
+                        timeout: 90000 
                     });
 
                     if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
                 } catch (err) {
-                    console.error("❌ Error subiendo a Azura:", err.message);
                     if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(false);
                 }
             });
-            writer.on('error', () => {
-                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-                resolve(false);
-            });
         });
-    } catch (e) { 
-        console.error("❌ Error descarga Jamendo:", e.message);
-        return false; 
-    }
+    } catch (e) { return false; }
 }
-                   
+
 
 async function obtenerAhoraSuena() {
     try {
@@ -181,6 +151,7 @@ function limpiarTexto(t) {
     if (!t) return "";
     return t.replace(/[*#_~]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:|Salomé:/gi, '').trim();
 }
+
 
 // ======= 4. INTELIGENCIA ARTIFICIAL =======
 
@@ -221,6 +192,8 @@ async function generarVoz(texto, archivoDestino) {
     });
 }
 
+// ======= 5. PRODUCCIÓN Y AUTOMATIZACIÓN =======
+
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
     const fondo = "fondo.mp3";
@@ -234,7 +207,10 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
                 const form = new FormData();
                 form.append('file', fs.createReadStream(tempSalida), { filename: nombreFinal });
                 form.append('path', nombreFinal);
-                await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, timeout: 60000 });
+                await axios.post(AZURA_API_UPLOAD, form, { 
+                    headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }, 
+                    timeout: 60000 
+                });
                 [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
                 resolve();
             } catch (e) { resolve(); }
@@ -242,9 +218,13 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     });
 }
 
-// ======= 6. AUTOMATIZACIÓN =======
+
+
+
 
 async function autoReporte() {
+    if (produciendoVoz) return;
+    produciendoVoz = true;
     try {
         const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
         const bbc = await obtenerNoticiasBBC();
@@ -262,11 +242,14 @@ async function autoReporte() {
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "dj_auto.mp3", true);
         ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 (15 min) actualizado.");
+        console.log("✅ dj_auto.mp3 actualizado.");
     } catch (e) { console.error("Error AutoReporte:", e.message); }
+    finally { produciendoVoz = false; }
 }
 
 async function autoRedactorIA() {
+    if (produciendoVoz) return;
+    produciendoVoz = true;
     try {
         const temas = ["un mensaje positivo", "una efeméride musical", "un dato curioso de Cali", "historia de un artista de salsa"];
         const tema = temas[Math.floor(Math.random() * temas.length)];
@@ -275,9 +258,12 @@ async function autoRedactorIA() {
         const pathVoz = `v_red_${Date.now()}.mp3`;
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "Redactor_ia.mp3", true);
-        console.log("✅ Redactor_ia.mp3 (50 min) actualizado.");
+        console.log("✅ Redactor_ia.mp3 actualizado.");
     } catch (e) { console.error("Error AutoRedactor:", e.message); }
+    finally { produciendoVoz = false; }
 }
+
+// (Las demás funciones generarVoz, redactarIA, obtenerNoticiasBBC se mantienen igual)
 
 // ======= 7. RUTAS API =======
 
@@ -305,16 +291,16 @@ app.post('/login', (req, res) => {
 
 app.get("/health", (req, res) => res.sendStatus(200));
 
-// ======= 8. INICIO DEL SERVIDOR =======
+
+// ======= 6. INICIO DEL SERVIDOR =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
     
-    // Reporte de clima/noticias cada 15 minutos
-    setTimeout(autoReporte, 10000);
-    setInterval(autoReporte, 15 * 60 * 1000);
+    // Tiempos escalonados para evitar saturar las APIs al arrancar
+    setTimeout(autoReporte, 10000); // 10 seg
+    setInterval(autoReporte, 15 * 60 * 1000); // Cada 15 min
 
-    // Contenido variado (Redactor_ia) cada 50 minutos
-    setTimeout(autoRedactorIA, 20000); 
-    setInterval(autoRedactorIA, 50 * 60 * 1000);
+    setTimeout(autoRedactorIA, 20000); // 20 seg
+    setInterval(autoRedactorIA, 50 * 60 * 1000); // Cada 50 min
 });
