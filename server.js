@@ -46,7 +46,7 @@ if (KEYS.TELEGRAM_TOKEN) {
 
     bot.on('polling_error', (err) => {
         if (err.code === 'ETELEGRAM' && err.message.includes('409 Conflict')) {
-            process.stdout.write("."); // Indica que espera turno sin saturar el log
+            process.stdout.write("."); 
             return;
         }
         console.error("❌ Error de Telegram:", err.code || err.message);
@@ -136,52 +136,51 @@ function limpiarTextoIA(t) {
 async function redactarIA(prompt) {
     const systemMsg = "Eres Salomé, locutora rumbera de La Fronterísima en Cali. Tu estilo es alegre, con sabor, usas jerga caleña suave (ve, mirá, oís, que todo bien). Eres breve, máximo 45 palabras. No uses emojis ni menciones asteriscos.";
     
-    // Verificación previa de llaves
+    // Verificación de llaves
     if (!KEYS.GROQ && !KEYS.GEMINI) {
-        console.error("❌ ERROR CRÍTICO: No hay llaves de IA (GROQ_API_KEY o GOOGLE_API_KEY) configuradas.");
-        return "¡Veee! Sintonizas La Fronterísima, la radio con más sabor en Cali.";
+        console.error("❌ ERROR: Faltan llaves de IA.");
+        return "¡Veee! Qué todo bien, sintonizas La Fronterísima en Cali.";
     }
 
+    // --- INTENTO 1: GROQ ---
     try {
-        console.log("🤖 Solicitando guion a GROQ...");
-        const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-            model: "llama-3.1-8b-instant",
-            messages: [{ role: "system", content: systemMsg }, { role: "user", content: prompt }],
-            temperature: 0.7, max_tokens: 150
-        }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
+        if (KEYS.GROQ) {
+            console.log("🤖 Solicitando guion a GROQ...");
+            const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+                model: "llama-3.1-8b-instant",
+                messages: [{ role: "system", content: systemMsg }, { role: "user", content: prompt }],
+                temperature: 0.8, max_tokens: 150
+            }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
 
-        const texto = res.data?.choices?.[0]?.message?.content;
-        if (!texto) throw new Error("La respuesta de GROQ llegó vacía.");
-        return limpiarTextoIA(texto);
-
+            const texto = res.data?.choices?.[0]?.message?.content;
+            if (texto) return limpiarTextoIA(texto);
+        }
     } catch (e) {
-        // Log detallado de Groq
-        const msgError = e.response?.data?.error?.message || e.message;
-        console.error(`⚠️ GROQ falló (${e.response?.status || 'Error'}): ${msgError}`);
-        
-        console.log("🔄 Intentando Fallback con GEMINI...");
-        try {
+        console.error(`⚠️ GROQ falló: ${e.response?.data?.error?.message || e.message}`);
+    }
+
+    // --- INTENTO 2: GEMINI (FALLBACK) ---
+    try {
+        if (KEYS.GEMINI) {
+            console.log("🔄 Usando Fallback: GEMINI...");
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
             const res = await axios.post(url, { 
-                contents: [{ parts: [{ text: `Instrucción: ${systemMsg}\n\nContexto: ${prompt}` }] }] 
+                contents: [{ parts: [{ text: `Instrucción: ${systemMsg}\n\nTarea: Redacta un guion para radio sobre: ${prompt}` }] }] 
             }, { timeout: 10000 });
 
             const textoGemini = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (!textoGemini) throw new Error("La respuesta de GEMINI llegó vacía.");
-
-            return limpiarTextoIA(textoGemini);
-        } catch (err) {
-            const msgGemini = err.response?.data?.error?.message || err.message;
-            console.error(`❌ GEMINI también falló (${err.response?.status || 'Error'}): ${msgGemini}`);
-            return "¡Veee, qué todo bien! Sintonizas La Fronterísima, la radio que te pone a gozar en Cali.";
+            if (textoGemini) return limpiarTextoIA(textoGemini);
         }
+    } catch (err) {
+        console.error(`❌ GEMINI también falló: ${err.response?.data?.error?.message || err.message}`);
     }
+
+    return "¡Veee, qué todo bien! Sintonizas La Fronterísima, la radio que te pone a gozar en Cali.";
 }
 
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
-        if (!KEYS.AZURE) return reject(new Error("Falta la llave AZURE_SPEECH_KEY en las variables de entorno."));
-        
+        if (!KEYS.AZURE) return reject(new Error("Falta AZURE_SPEECH_KEY"));
         const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
         config.speechSynthesisVoiceName = "es-CO-SalomeNeural";
         const synth = new sdk.SpeechSynthesizer(config);
@@ -195,15 +194,8 @@ async function generarVoz(texto, archivoDestino) {
             if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
                 fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
                 resolve();
-            } else {
-                // Capturamos el detalle del error de Azure
-                const detalle = r.errorDetails || "Razón desconocida";
-                reject(new Error(`Error en Azure TTS: ${detalle}`));
-            }
-        }, e => { 
-            synth.close(); 
-            reject(new Error(`Fallo de conexión con Azure: ${e}`)); 
-        });
+            } else reject(new Error(`Error Azure TTS: ${r.errorDetails}`));
+        }, e => { synth.close(); reject(e); });
     });
 }
 
@@ -227,7 +219,10 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
                 });
                 [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
                 resolve(true);
-            } catch (e) { resolve(false); }
+            } catch (e) { 
+                console.error("Error subiendo a AzuraCast:", e.message);
+                resolve(false); 
+            }
         });
     });
 }
@@ -249,12 +244,12 @@ async function obtenerNoticia() {
             return match[index].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').split(' | ')[0].trim();
         }
         return "El mundo sigue vibrando con buena salsa.";
-    } catch (e) { return "Sigue en sintonía con La Fronterísima."; }
+    } catch (e) { return "Sintonizas La Fronterísima, la que manda."; }
 }
 
 async function autoReporte() {
     try {
-        console.log("🎙️ Generando reporte completo...");
+        console.log("🎙️ Generando reporte completo de Salomé...");
         const [np, clim, noticiaHoy] = await Promise.all([
             obtenerAhoraSuena(),
             axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true").catch(() => null),
@@ -263,26 +258,30 @@ async function autoReporte() {
 
         const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
         const temp = clim ? Math.round(clim.data.current_weather.temperature) : "27";
-        let saludo = (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 20 * 60 * 1000)) ? `Un saludo especial para ${ultimoSaludo.nombre} que nos escribió: ${ultimoSaludo.texto}.` : "";
+        let saludo = (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 25 * 60 * 1000)) ? `Saludo para ${ultimoSaludo.nombre}: ${ultimoSaludo.texto}.` : "";
 
-        const contextoIA = `Hora: ${hora}. Clima en Cali: ${temp}°C. Noticia: ${noticiaHoy}. Sonando ahora: ${np.titulo}. ${saludo}`;
+        const contextoIA = `Hora: ${hora}. Clima: ${temp}°C. Noticia: ${noticiaHoy}. Sonando: ${np.titulo}. ${saludo}`;
         const guion = await redactarIA(contextoIA);
+        
         const pathVoz = path.join(__dirname, `v_auto_${Date.now()}.mp3`);
-
         await generarVoz(guion, pathVoz);
         const exito = await producirYSubir(pathVoz, "dj_auto.mp3", true);
-        if (exito) { ultimoSaludo.fecha = null; console.log("✅ Reporte dj_auto.mp3 actualizado."); }
-    } catch (e) { console.error("❌ Error AutoReporte:", e.message); }
+        
+        if (exito) { 
+            ultimoSaludo.fecha = null; 
+            console.log("✅ Reporte dj_auto.mp3 actualizado con éxito."); 
+        }
+    } catch (e) { console.error("❌ Error en AutoReporte:", e.message); }
 }
 
 async function autoRedactorIA() {
     try {
-        const guion = await redactarIA("Dato curioso de salsa caleña o mensaje positivo para la ciudad.");
+        const guion = await redactarIA("Dato curioso de Cali o un mensaje con mucho sabor caleño.");
         const pathVoz = path.join(__dirname, `v_red_${Date.now()}.mp3`);
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "Redactor_ia.mp3", true);
         console.log("✅ Redactor_ia.mp3 actualizado.");
-    } catch (e) { console.error("❌ Error AutoRedactor:", e.message); }
+    } catch (e) { console.error("❌ Error en AutoRedactor:", e.message); }
 }
 
 // ======= 6. RUTAS API =======
@@ -308,13 +307,13 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro activa en puerto ${PORT}`);
     
-    // Ejecución inicial tras 10 segundos
+    // Ejecución inicial tras 10 segundos para no saturar
     setTimeout(() => {
-        autoReporte();
-        autoRedactorIA();
+        autoReporte().catch(console.error);
+        autoRedactorIA().catch(console.error);
     }, 10000);
 
     // Ciclos automáticos
     setInterval(autoReporte, 15 * 60 * 1000);   // Cada 15 min
-    setInterval(autoRedactorIA, 45 * 60 * 1000); // Cada 45 min
+    setInterval(autoRedactorIA, 50 * 60 * 1000); // Cada 50 min
 });
