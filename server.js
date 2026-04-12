@@ -54,38 +54,44 @@ async function buscarEnDailymotion(query) {
     }
 }
 
-async function descargarYSubirAzura(video) {
+sync function descargarYSubirAzura(video) {
     const tempFile = path.join(__dirname, `tmp_${video.id}.mp3`);
     const nombreFinal = `pedido_${Date.now()}.mp3`;
 
     try {
-        console.log(`🎙️ Extrayendo stream real de: ${video.title}`);
+        console.log(`🎙️ Procesando audio de Dailymotion: ${video.title}`);
 
-        // 1. Usamos ytdl para obtener el audio puro
+        // Usamos FFmpeg con parámetros de reconexión para streams m3u8 de Dailymotion
         await new Promise((resolve, reject) => {
-            const stream = ytdl(video.url, {
-                filter: 'audioonly',
-                quality: 'highestaudio'
-            });
-
-            ffmpeg(stream)
+            ffmpeg(video.url)
+                .inputOptions([
+                    '-headers', 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    '-reconnect', '1',
+                    '-reconnect_streamed', '1',
+                    '-reconnect_delay_max', '5'
+                ])
+                .audioCodec('libmp3lame')
                 .audioBitrate(192)
                 .toFormat('mp3')
+                .on('start', () => console.log("⚙️ FFmpeg empezando a convertir..."))
                 .on('error', (err) => {
-                    console.error("❌ Error en conversión FFmpeg:", err.message);
+                    console.error("❌ Error FFmpeg:", err.message);
                     reject(err);
                 })
                 .on('end', () => {
-                    console.log("✅ MP3 generado con éxito.");
+                    console.log("✅ MP3 generado.");
                     resolve();
                 })
                 .save(tempFile);
         });
 
-        // 2. Subida a AzuraCast (Carpeta Raíz)
+        if (!fs.existsSync(tempFile) || fs.statSync(tempFile).size < 1000) {
+            throw new Error("El archivo generado está vacío.");
+        }
+
         console.log(`📤 Subiendo a la raíz de AzuraCast...`);
         const form = new FormData();
-        form.append('path', ''); // Vacío = Raíz
+        form.append('path', ''); 
         form.append('file', fs.createReadStream(tempFile), {
             filename: nombreFinal,
             contentType: 'audio/mpeg'
@@ -97,22 +103,22 @@ async function descargarYSubirAzura(video) {
                 "X-API-Key": KEYS.AZURA
             },
             maxContentLength: Infinity,
-            maxBodyLength: Infinity
+            maxBodyLength: Infinity,
+            timeout: 300000 
         });
 
-        console.log(`🚀 ¡Canción en la radio!`);
+        console.log(`🚀 ¡Subida exitosa!`);
         return true;
 
     } catch (err) {
-        console.error("❌ Error Crítico:", err.message);
-        return false;
+        console.error("❌ Fallo total en descarga/subida:", err.message);
+        return false; // Retornamos false para que el bot avise al usuario en lugar de morir
     } finally {
         if (fs.existsSync(tempFile)) {
             try { fs.unlinkSync(tempFile); } catch (e) {}
         }
     }
 }
-
 
 // ======= LÓGICA DE TELEGRAM =======
 
