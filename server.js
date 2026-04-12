@@ -260,35 +260,32 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 }
 
 // ======= 2. OBTENER NOTICIAS (RSS) =======
+// ======= 2. OBTENER NOTICIAS (RSS - EURONEWS MUNDO) =======
 async function obtenerNoticia() {
     try {
-        // Nueva URL de Euronews Mundo
-     const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo", {
-       headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Radio-Bot)' },
-       timeout: 5000
-  });
+        const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo", {
+            headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Radio-Bot)' },
+            timeout: 5000
+        });
 
-        // Extraemos todos los t铆tulos. 
-        // Nota: El primer <title> suele ser el nombre del canal ("Euronews Mundo"), lo saltamos.
+        // Regex para capturar títulos con o sin CDATA
         const match = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
 
         if (match && match.length > 1) {
-            // Saltamos el 铆ndice 0 (T铆tulo del canal) y elegimos uno al azar
+            // Saltamos el índice 0 que suele ser "Euronews Mundo"
             const index = Math.floor(Math.random() * (match.length - 1)) + 1;
             
-            // Limpiamos etiquetas, CDATA y posibles sufijos de marca
             let noticia = match[index]
                 .replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '')
-                .split(' | ')[0]  // Euronews a veces usa " | Euronews"
+                .split(' | ')[0] // Limpia el sufijo de marca
                 .trim();
 
             return noticia;
         }
-        
-        return "Sigue vibrando con la mejor energ铆a rumbera.";
+        return "El mundo sigue vibrando con buena música.";
     } catch (e) { 
         console.error("Error en RSS Euronews:", e.message);
-        return "Notas surcando fronteras con la mejor m煤sica."; 
+        return "Sigue en sintonía con la mejor energía."; 
     }
 }
 
@@ -296,13 +293,13 @@ async function obtenerNoticia() {
 
 async function autoReporte() {
     try {
-        console.log("🎙️ Generando reporte completo (Noticias + Clima + Música)...");
+        console.log("🎙️ Generando reporte completo (Euronews + Clima + Música)...");
 
-        // Obtenemos todo en paralelo para máxima eficiencia
-        const [np, clim, bbc] = await Promise.all([
+        // Llamamos a obtenerNoticia() que ahora usa Euronews
+        const [np, clim, noticiaHoy] = await Promise.all([
             obtenerAhoraSuena(),
             axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true").catch(() => null),
-            obtenerNoticiaBBC()
+            obtenerNoticia() 
         ]);
 
         const hora = new Date().toLocaleTimeString("es-CO", { 
@@ -319,18 +316,18 @@ async function autoReporte() {
             saludo = `Especialmente para ${ultimoSaludo.nombre} que nos dice: ${ultimoSaludo.texto}.`;
         }
 
-        // Prompt enriquecido para la IA
+        // Prompt actualizado con la noticia de Euronews
         const contextoIA = `
             Estás al aire en La Fronterísima. 
             Datos actuales:
             - Hora: ${hora}.
             - Clima en Cali: ${temp}°C.
-            - Noticia del momento (BBC): ${bbc}.
+            - Noticia destacada: ${noticiaHoy}.
             - Sonando ahora: ${np.titulo}.
             - ${saludo}
             
-            Instrucción: Crea un guion corto (45 palabras), alegre y caleño. 
-            Menciona la noticia de forma natural y sigue con la rumba.
+            Instrucción: Crea un guion corto (45 palabras), alegre y muy caleño. 
+            Menciona la noticia de forma natural y fluye con la rumba.
         `;
         
         const guion = await redactarIA(contextoIA);
@@ -341,7 +338,7 @@ async function autoReporte() {
 
         if (exito) {
             ultimoSaludo.fecha = null;
-            console.log("✅ Reporte con noticias BBC actualizado.");
+            console.log("✅ Reporte de las " + hora + " actualizado correctamente.");
         }
 
     } catch (e) {
