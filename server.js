@@ -172,7 +172,7 @@ async function autoReporte() {
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "dj_auto.mp3", true);
         ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 actualizado.");
+        console.log("✅ dj_auto.mp3 actualizado-.");
     } catch (e) { console.error("Error AutoReporte:", e.message); }
     finally { produciendoVoz = false; }
 }
