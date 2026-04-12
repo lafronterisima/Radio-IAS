@@ -232,17 +232,21 @@ app.post('/login', (req, res) => {
     else res.status(401).json({ success: false });
 
 // ======= 6. INICIO =======
+// ======= 6. INICIO CORREGIDO PARA KOYEB =======
 const PORT = process.env.PORT || 8000;
-app.get("/health", (req, res) => res.sendStatus(200));
+
+// Mover el health check arriba para que responda de inmediato
+app.get("/health", (req, res) => res.status(200).send("OK"));
 
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Pro en puerto ${PORT}`);
     
-    // Lanzar ejecuciones iniciales tras 10 segundos para dejar que Koyeb se estabilice
+    // El health check ya pasó, ahora intentamos las automatizaciones con calma
     setTimeout(() => {
-        autoReporte();
-        autoRedactorIA();
-    }, 10000);
+        console.log("🛠️ Iniciando primera ejecución de prueba...");
+        autoReporte().catch(e => console.log("Fallo inicial reporte:", e.message));
+        autoRedactorIA().catch(e => console.log("Fallo inicial redactor:", e.message));
+    }, 15000); // Esperar 15 segundos después de encender
 
     setInterval(autoReporte, 15 * 60 * 1000);
     setInterval(autoRedactorIA, 50 * 60 * 1000);
