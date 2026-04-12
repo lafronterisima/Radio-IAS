@@ -260,8 +260,18 @@ app.post("/procesar-locucion", async (req, res) => {
 // ======= 7. AUTOMATIZACIÓN =======
 
 async function autoReporte() {
+    console.log("⏳ Iniciando autoReporte mensual/diario...");
     try {
-        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
+        // 1. CLIMA (Con validación)
+        let temp = "agradable";
+        try {
+            const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true", { timeout: 5000 });
+            if (clim.data && clim.data.current_weather) {
+                temp = `${Math.round(clim.data.current_weather.temperature)}°C`;
+            }
+        } catch (eClima) { console.log("⚠️ No se pudo obtener el clima, usando valor por defecto."); }
+
+        // 2. NOTICIAS Y CANCIÓN (Ya tienen sus propios catch internos)
         const bbc = await obtenerNoticiasBBC();
         const np = await obtenerAhoraSuena();
         const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
@@ -271,14 +281,30 @@ async function autoReporte() {
             extras += ` SALUDO: ${ultimoSaludo.nombre} dice ${ultimoSaludo.texto}.`;
         }
 
-        const prompt = `Salomé de La Fronterísima Cali. Hora: ${hora}. Música: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. Noticias: ${bbc}. ${extras} Guion rumbero de 50 palabras.`;
+        // 3. PROMPT PARA IA
+        const prompt = `Salomé de La Fronterísima Cali. Hora: ${hora}. Música actual: ${np.titulo}. Clima en Cali: ${temp}. Noticias: ${bbc}. ${extras} Redacta un guion de 50 palabras alegre y rumbero. Termina con: Notas surcando fronteras.`;
         
         const guion = await redactarIA(prompt);
-        await generarVoz(guion, "v_auto.mp3");
-        await producirYSubir("v_auto.mp3", "dj_auto.mp3", true);
+        
+        // 4. GENERACIÓN DE VOZ
+        const archivoTemporalVoz = "v_auto.mp3";
+        await generarVoz(guion, archivoTemporalVoz);
+        
+        // 5. PRODUCCIÓN FINAL
+        await producirYSubir(archivoTemporalVoz, "dj_auto.mp3", true);
+        
         ultimoSaludo.fecha = null; 
-        console.log(`✅ dj_auto.mp3 actualizado.`);
-    } catch (e) { console.error("Error AutoReporte:", e.message); }
+        console.log(`✅ dj_auto.mp3 actualizado con éxito a las ${hora}`);
+
+    } catch (e) {
+        // Mejora del log de errores para ver qué pasa realmente
+        console.error("❌ Error Crítico en AutoReporte:");
+        if (e.response) {
+            console.error(`Status: ${e.response.status} - Data:`, e.response.data);
+        } else {
+            console.error(e.stack || e);
+        }
+    }
 }
 
 app.post('/login', (req, res) => {
