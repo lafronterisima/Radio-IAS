@@ -259,22 +259,94 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     });
 }
 
+// ======= 2. OBTENER NOTICIAS (RSS) =======
+async function obtenerNoticia() {
+    try {
+        // Nueva URL de Euronews Mundo
+     const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=mundo", {
+       headers: { 'User-Agent': 'Mozilla/5.0 (LaFronterisima-Radio-Bot)' },
+       timeout: 5000
+  });
+
+        // Extraemos todos los t铆tulos. 
+        // Nota: El primer <title> suele ser el nombre del canal ("Euronews Mundo"), lo saltamos.
+        const match = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
+
+        if (match && match.length > 1) {
+            // Saltamos el 铆ndice 0 (T铆tulo del canal) y elegimos uno al azar
+            const index = Math.floor(Math.random() * (match.length - 1)) + 1;
+            
+            // Limpiamos etiquetas, CDATA y posibles sufijos de marca
+            let noticia = match[index]
+                .replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '')
+                .split(' | ')[0]  // Euronews a veces usa " | Euronews"
+                .trim();
+
+            return noticia;
+        }
+        
+        return "Sigue vibrando con la mejor energ铆a rumbera.";
+    } catch (e) { 
+        console.error("Error en RSS Euronews:", e.message);
+        return "Notas surcando fronteras con la mejor m煤sica."; 
+    }
+}
+
 // ======= 5. AUTOMATIZACIÓN =======
 
 async function autoReporte() {
     try {
-        const np = await obtenerAhoraSuena();
-        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
-        let saludo = (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 15*60*1000)) ? `Un saludo para ${ultimoSaludo.nombre} que nos escribió.` : "";
+        console.log("🎙️ Generando reporte completo (Noticias + Clima + Música)...");
+
+        // Obtenemos todo en paralelo para máxima eficiencia
+        const [np, clim, bbc] = await Promise.all([
+            obtenerAhoraSuena(),
+            axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true").catch(() => null),
+            obtenerNoticiaBBC()
+        ]);
+
+        const hora = new Date().toLocaleTimeString("es-CO", { 
+            timeZone: "America/Bogota", 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            hour12: true 
+        });
+
+        const temp = clim ? Math.round(clim.data.current_weather.temperature) : "27";
+
+        let saludo = "";
+        if (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 15 * 60 * 1000)) {
+            saludo = `Especialmente para ${ultimoSaludo.nombre} que nos dice: ${ultimoSaludo.texto}.`;
+        }
+
+        // Prompt enriquecido para la IA
+        const contextoIA = `
+            Estás al aire en La Fronterísima. 
+            Datos actuales:
+            - Hora: ${hora}.
+            - Clima en Cali: ${temp}°C.
+            - Noticia del momento (BBC): ${bbc}.
+            - Sonando ahora: ${np.titulo}.
+            - ${saludo}
+            
+            Instrucción: Crea un guion corto (45 palabras), alegre y caleño. 
+            Menciona la noticia de forma natural y sigue con la rumba.
+        `;
         
-        const guion = await redactarIA(`Son las ${hora}. Está sonando ${np.titulo}. ${saludo} ¡Dales mucha energía!`);
-        const pathVoz = `v_auto_${Date.now()}.mp3`;
-        
+        const guion = await redactarIA(contextoIA);
+        const pathVoz = path.join(__dirname, `v_auto_${Date.now()}.mp3`);
+
         await generarVoz(guion, pathVoz);
-        await producirYSubir(pathVoz, "dj_auto.mp3", true);
-        ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 actualizado.");
-    } catch (e) { console.error("❌ Error AutoReporte:", e.message); }
+        const exito = await producirYSubir(pathVoz, "dj_auto.mp3", true);
+
+        if (exito) {
+            ultimoSaludo.fecha = null;
+            console.log("✅ Reporte con noticias BBC actualizado.");
+        }
+
+    } catch (e) {
+        console.error("❌ Error en AutoReporte:", e.message);
+    }
 }
 
 async function autoRedactorIA() {
