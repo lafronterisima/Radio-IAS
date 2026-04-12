@@ -59,32 +59,40 @@ async function obtenerNoticia() {
 }
 
 // ======= 3. INTELIGENCIA ARTIFICIAL (FAILOVER) =======
-async function redactarIA(idea, datos = null) {
-    let prompt;
-    if (datos) {
-        prompt = `Eres locutor estrella de "La Fronter铆sima". Hora en Colombia: ${datos.hora}, Temp: ${datos.temp}掳C, Noticia: ${datos.noticia}. 
-        Instrucci贸n: Crea un guion alegre de 45 palabras. Incluye la hora, clima y la noticia. 
-        Termina con el eslogan: "La Fronterisima, notas surcando fronteras". SOLO texto, sin etiquetas.`;
-    } else {
-        prompt = `Idea: ${idea}. Genera un guion alegre de 40 palabras para La Fronter铆sima. Incluye el eslogan: "La Fronterisima, notas surcando fronteras".`;
-    }
-
-    // FAILOVER: GEMINI 1.5 FLASH (Versi贸n estable actual)
+ 
+async function redactarIA(prompt) {
     try {
+        console.log("📡 Intentando con Gemini...");
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 6000 });
+        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 10000 });
         const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
         if (texto) return limpiarTexto(texto);
-    } catch (e) { console.warn("鈿狅笍 Gemini fall贸, saltando a Groq..."); }
-
-    try {
-        const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-            model: "llama-3.1-8b-instant",
-            messages: [{ role: "system", content: "Locutora colombiana alegre." }, { role: "user", content: prompt }]
-        }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 6000 });
-        return limpiarTexto(res.data?.choices?.[0]?.message?.content);
-    } catch (e) { return "Sintonizas La Fronter铆sima, notas surcando fronteras."; }
+        throw new Error("Gemini devolvió vacío");
+    } catch (e) {
+        console.warn("⚠️ Gemini falló, saltando a Groq...");
+        try {
+            const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+                model: "llama-3.1-8b-instant",
+                messages: [
+                    { role: "system", content: "Locutora rumbera de Cali." },
+                    { role: "user", content: prompt }
+                ]
+            }, { 
+                headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, 
+                timeout: 8000 
+            });
+            const textoGroq = res.data?.choices?.[0]?.message?.content;
+            if (textoGroq) return limpiarTexto(textoGroq);
+            throw new Error("Groq devolvió vacío");
+        } catch (err) {
+            console.error("❌ Ambas IAs fallaron.");
+            // Devolver un guion de emergencia para que el sistema no se rompa
+            return "¡Sintonizas La Fronterísima! Notas surcando fronteras con la mejor energía para ti.";
+        }
+    }
 }
+
+    
 
 function limpiarTexto(t) {
     return t.replace(/[*#_]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:/gi, '').trim();
@@ -151,33 +159,42 @@ app.post("/procesar-locucion", async (req, res) => {
 });
 
 // ======= 6. AUTOMATIZACI脫N (CADA 15 MINUTOS) =======
+
 async function autoReporte() {
-    console.log("馃帣锔� Generando reporte autom谩tico...");
+    console.log("🎙️ Generando reporte automático...");
     try {
-        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
-        const noticia = await obtenerNoticia();
-        const datos = { 
-            hora: new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit' }),
-            temp: Math.round(clim.data.current_weather.temperature),
-            noticia
-        };
-        const guion = await redactarIA(null, datos);
-        const pathAuto = `v_auto.mp3`;
-        await generarVoz(guion, pathAuto);
-        await producirYSubir(pathAuto, "dj_auto.mp3", true);
-        console.log(`鉁� Auto-Reporte exitoso (${datos.hora})`);
-    } catch (e) { console.error("鉂� Error Auto-Reporte:", e.message); }
+        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true", { timeout: 5000 });
+        const bbc = await obtenerNoticiasBBC();
+        const np = await obtenerAhoraSuena();
+        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
+        
+        const temp = clim.data?.current_weather?.temperature ? `${Math.round(clim.data.current_weather.temperature)}°C` : "clima tropical";
+
+        const prompt = `Salomé de La Fronterísima Cali. Hora: ${hora}. Música: ${np.titulo}. Clima: ${temp}. Noticias: ${bbc}. Guion de 50 palabras alegre. Termina: Notas surcando fronteras.`;
+        
+        const guion = await redactarIA(prompt);
+        
+        // Verificamos que el guion exista antes de seguir
+        if (!guion) throw new Error("El guion generado está vacío.");
+
+        await generarVoz(guion, "v_auto.mp3");
+        await producirYSubir("v_auto.mp3", "dj_auto.mp3", true);
+        
+        console.log(`✅ dj_auto.mp3 actualizado exitosamente.`);
+    } catch (e) {
+        // Aquí es donde evitamos el 'undefined'
+        console.error("❌ Error Auto-Reporte:");
+        if (e.response) {
+            // Error de respuesta de API (401, 404, 500)
+            console.error(`Status: ${e.response.status} - Info: ${JSON.stringify(e.response.data)}`);
+        } else {
+            // Error de código o conexión
+            console.error(e.stack || e.message || e);
+        }
+    }
 }
 
-const PORT = process.env.PORT || 8000;
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`馃殌 La Fronter铆sima Pro en puerto ${PORT}`);
-    
-    // Iniciar auto-reporte tras 1 minuto
-    setTimeout(() => {
-        autoReporte();
-        setInterval(autoReporte, 15 * 60 * 1000); 
-    }, 60000);
+
 
     // Autoping cada 10 minutos
     setInterval(() => {
