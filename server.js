@@ -52,12 +52,15 @@ bot.on('message', async (msg) => {
         if (track) {
             const exito = await descargarYSubirAzura(track);
             if (exito) {
+                // USAMOS EL ID QUE ENCONTRASTE: 6991
+                await solicitarCancionEnAzura(6991); 
+
                 ultimoSaludo = { 
                     nombre: msg.from.first_name || "un oyente", 
                     texto: `pidió la canción "${track.info}"`, 
                     fecha: new Date() 
                 };
-                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Salomé la presentará pronto.`);
+                bot.sendMessage(msg.chat.id, `✅ ¡Subida y solicitada! "${track.info}". Salomé la presentará pronto.`);
             } else {
                 bot.sendMessage(msg.chat.id, `❌ Error al procesar el archivo.`);
             }
@@ -119,20 +122,17 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     }
 }
   
-        
-
-
-
 async function solicitarCancionEnAzura(mediaId) {
-    // El mediaId es el ID que AzuraCast le asigna a 'pedido_actual.mp3'
-    // Puedes encontrarlo en la lista de archivos de música.
     try {
-        await axios.post(`${BASE_URL_API}/station/24/request/${mediaId}`, {}, {
+        // Usamos la constante AZURA_BASE que ya incluye la URL y el Station ID
+        await axios.post(`${AZURA_BASE}/request/${mediaId}`, {}, {
             headers: { "X-API-Key": KEYS.AZURA }
         });
-        console.log("🚀 Canción enviada a la cola de reproducción.");
+        console.log("🚀 Pedido enviado a la cola de AzuraCast.");
+        return true;
     } catch (error) {
-        console.error("No se pudo forzar el pedido:", error.message);
+        console.error("❌ Error al solicitar canción:", error.response?.data || error.message);
+        return false;
     }
 }
 
