@@ -147,24 +147,63 @@ async function obtenerAhoraSuena() {
 // ======= 4. IA Y VOZ =======
 
 async function redactarIA(prompt) {
-    const systemMsg = "Eres Salomé, locutora rumbera de La Fronterísima en Cali. Eres alegre, usas jerga caleña suave y eres breve (máximo 45 palabras).";
+    // Definimos la personalidad de Salomé con sus elementos clave
+    const systemMsg = "Eres Salomé, locutora rumbera de La Fronterísima en Cali. Tu estilo es alegre, con sabor, usas jerga caleña suave (ve, mirá, oís, que todo bien). Eres breve, máximo 45 palabras. No uses emojis ni menciones asteriscos.";
+    
     try {
-        // Prioridad GROQ
+        console.log("🤖 Solicitando guion a GROQ...");
+        
+        // 1. Intento principal con GROQ
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
             model: "llama-3.1-8b-instant",
-            messages: [{ role: "system", content: systemMsg }, { role: "user", content: prompt }]
-        }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
-        return res.data.choices[0].message.content.replace(/[*#_~]/g, '').trim();
+            messages: [
+                { role: "system", content: systemMsg },
+                { role: "user", content: prompt }
+            ],
+            temperature: 0.7,
+            max_tokens: 150
+        }, { 
+            headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, 
+            timeout: 8000 
+        });
+
+        const texto = res.data?.choices?.[0]?.message?.content;
+        if (!texto) throw new Error("GROQ devolvió respuesta vacía");
+
+        return limpiarTextoIA(texto);
+
     } catch (e) {
+        console.error("⚠️ Falló GROQ, intentando Fallback con GEMINI...", e.message);
+        
         try {
-            // Fallback GEMINI
+            // 2. Fallback con GEMINI
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
             const res = await axios.post(url, { 
-                contents: [{ parts: [{ text: `${systemMsg} -> ${prompt}` }] }] 
-            });
-            return res.data.candidates[0].content.parts[0].text.replace(/[*#_~]/g, '').trim();
-        } catch (err) { return "¡Sintonizas La Fronterísima, la radio que te pone a gozar en Cali!"; }
+                contents: [{ 
+                    parts: [{ text: `Instrucción: ${systemMsg}\n\nContexto actual: ${prompt}` }] 
+                }] 
+            }, { timeout: 10000 });
+
+            const textoGemini = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!textoGemini) throw new Error("GEMINI también falló");
+
+            return limpiarTextoIA(textoGemini);
+
+        } catch (err) {
+            console.error("❌ Ambas IAs fallaron:", err.message);
+            // 3. Texto de emergencia (Nunca devuelve undefined)
+            return "¡Veee, qué todo bien! Sintonizas La Fronterísima, la radio que te pone a gozar en la Sucursal del Cielo. ¡Notas surcando fronteras!";
+        }
     }
+}
+
+// Función auxiliar para dejar el texto impecable para la voz de Salomé
+function limpiarTextoIA(t) {
+    return t
+        .replace(/[*#_~]/g, '') // Quita símbolos de formato Markdown
+        .replace(/Locutora:|Salomé:|Respuesta:|Guion:/gi, '') // Quita etiquetas innecesarias
+        .replace(/\((.*?)\)/g, '') // Quita acotaciones entre paréntesis como (riendo)
+        .trim();
 }
 
 async function generarVoz(texto, archivoDestino) {
