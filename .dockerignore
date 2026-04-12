@@ -2,4 +2,6 @@ node_modules
 npm-debug.log
 .env
 .git
-*.mp3
+v_*.mp3
+prod_*.mp3
+tmp_*.mp3
