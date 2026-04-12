@@ -36,6 +36,7 @@ const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 let cancionRecienDescubierta = null;
+let produciendoVoz = false;
 
 bot.on('polling_error', () => {}); 
 
