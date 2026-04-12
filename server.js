@@ -273,17 +273,47 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 
 // ======= 6. AUTOMATIZACIÓN =======
 
+// Ejemplo para autoReporte (Aplica lo mismo a autoRedactorIA)
 async function autoReporte() {
     try {
-        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true");
-        const bbc = await obtenerNoticiasBBC();
+        // 1. Intentar obtener Clima con fallback
+        let temp = "25"; // Valor por defecto para Cali
+        try {
+            const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.45&longitude=-76.53&current_weather=true", { timeout: 5000 });
+            temp = Math.round(clim.data.current_weather.temperature);
+        } catch (e) { console.error("⚠️ Falló clima, usando defecto."); }
+
+        // 2. Intentar obtener Noticias con fallback
+        let bbc = "El mundo sigue vibrando con buena energía.";
+        try {
+            bbc = await obtenerNoticiasBBC();
+        } catch (e) { console.error("⚠️ Falló noticias, usando defecto."); }
+
+        // 3. Obtener "Ahora suena"
         const np = await obtenerAhoraSuena();
-        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
         
-        let extras = "";
-        if (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 30 * 60 * 1000)) {
-            extras += ` SALUDO: ${ultimoSaludo.nombre} dice ${ultimoSaludo.texto}.`;
-        }
+        const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
+
+        // Construir el prompt con los datos obtenidos
+        const prompt = `Salomé de La Fronterísima Cali. Hora: ${hora}. Música: ${np.titulo}. Clima: ${temp}°C. Noticias: ${bbc}. Guion rumbero de 50 palabras.`;
+        
+        const guion = await redactarIA(prompt);
+        if (!guion) throw new Error("La IA no generó texto");
+
+        const pathVoz = `v_auto_${Date.now()}.mp3`;
+        await generarVoz(guion, pathVoz);
+        
+        // El nombre final en AzuraCast será dj_auto.mp3
+        await producirYSubir(pathVoz, "dj_auto.mp3", true);
+        
+        console.log(`✅ dj_auto.mp3 actualizado [${hora}]`);
+
+    } catch (e) {
+        console.error("❌ ERROR CRÍTICO EN REPORTE:");
+        console.error(e.response?.data || e.message || e);
+    }
+}
+
 
         const prompt = `Salomé de La Fronterísima Cali. Hora: ${hora}. Música: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. Noticias: ${bbc}. ${extras} Guion rumbero de 50 palabras.`;
         const guion = await redactarIA(prompt);
@@ -297,15 +327,40 @@ async function autoReporte() {
 
 async function autoRedactorIA() {
     try {
-        const temas = ["un mensaje positivo", "una efeméride musical", "un dato curioso de Cali", "historia de un artista de salsa"];
+        const temas = [
+            "un mensaje positivo para empezar el día", 
+            "una efeméride musical latina de hoy", 
+            "un dato curioso sobre la salsa o Cali", 
+            "la historia breve de un ícono de la música tropical",
+            "una invitación a seguirnos en nuestras redes sociales"
+        ];
+        
         const tema = temas[Math.floor(Math.random() * temas.length)];
-        const prompt = `Salomé de La Fronterísima. Redacta 40 palabras sobre ${tema}. Muy alegre. Termina: Notas surcando fronteras.`;
+        
+        // Reforzamos el prompt para que la IA sepa que es para radio
+        const prompt = `Actúa como Salomé, locutora rumbera. Redacta un segmento de radio de 40 palabras sobre: ${tema}. Usa un tono muy alegre y caleño. Termina siempre con: Notas surcando fronteras.`;
+        
         const guion = await redactarIA(prompt);
+        
+        if (!guion) {
+            throw new Error("La IA no pudo redactar el guion de contenido variado.");
+        }
+
         const pathVoz = `v_red_${Date.now()}.mp3`;
+        
+        // Generamos la voz de Salomé
         await generarVoz(guion, pathVoz);
+        
+        // Subimos como Redactor_ia.mp3 (que debe estar en una playlist de larga duración)
         await producirYSubir(pathVoz, "Redactor_ia.mp3", true);
-        console.log("✅ Redactor_ia.mp3 (50 min) actualizado.");
-    } catch (e) { console.error("Error AutoRedactor:", e.message); }
+        
+        console.log(`✅ Contenido variado actualizado: [Tema: ${tema}]`);
+
+    } catch (e) {
+        console.error("❌ ERROR EN AUTO-REDACTOR:");
+        // Captura el error real de la API o del sistema
+        console.error(e.response?.data || e.message || e);
+    }
 }
 
 // ======= 7. RUTAS API =======
