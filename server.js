@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
@@ -127,71 +126,6 @@ async function descargarYSubirAzura(track) {
     } catch (e) { return false; }
 }
 
-
-async function obtenerAhoraSuena() {
-    try {
-        const res = await axios.get(`${AZURA_BASE}/nowplaying`, { timeout: 4000 });
-        const np = res.data.now_playing?.song;
-        return np ? { artista: np.artist, titulo: np.title } : { artista: "varios", titulo: "buena música" };
-    } catch (e) { return { artista: "varios", titulo: "tu música favorita" }; }
-}
-
-async function obtenerNoticiasBBC() {
-    try {
-        const res = await axios.get("https://feeds.bbci.co.uk/mundo/rss.xml", { timeout: 5000 });
-        const matches = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
-        if (matches && matches.length > 2) {
-            return matches[1].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').trim();
-        }
-        return "El mundo sigue vibrando.";
-    } catch (e) { return "Sigue en sintonía."; }
-}
-
-function limpiarTexto(t) {
-    if (!t) return "";
-    return t.replace(/[*#_~]/g, '').replace(/Locutor:|Guion:|Respuesta:|Locutora:|Salomé:/gi, '').trim();
-}
-
-
-// ======= 4. INTELIGENCIA ARTIFICIAL =======
-
-async function redactarIA(prompt) {
-    try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${KEYS.GEMINI}`;
-        const res = await axios.post(url, { contents: [{ parts: [{ text: prompt }] }] }, { timeout: 10000 });
-        const texto = res.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (texto) return limpiarTexto(texto);
-    } catch (e) {
-        try {
-            const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-                model: "llama-3.1-8b-instant",
-                messages: [{ role: "system", content: "Locutora colombiana rumbera de Cali." }, { role: "user", content: prompt }]
-            }, { headers: { "Authorization": `Bearer ${KEYS.GROQ}` }, timeout: 8000 });
-            return limpiarTexto(res.data?.choices?.[0]?.message?.content);
-        } catch (err) { return "Sintonizas La Fronterísima, notas surcando fronteras."; }
-    }
-}
-
-// ======= 5. VOZ Y PRODUCCIÓN =======
-
-async function generarVoz(texto, archivoDestino) {
-    return new Promise((resolve, reject) => {
-        const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
-        config.speechSynthesisVoiceName = "es-CO-SalomeNeural";
-        const synth = new sdk.SpeechSynthesizer(config);
-        const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
-            <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.4" xmlns:mstts="https://www.w3.org/2001/mstts">
-            <prosody rate="+8%">${texto}</prosody></mstts:express-as></voice></speak>`;
-        
-        synth.speakSsmlAsync(ssml, r => {
-            if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-                fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
-                synth.close(); resolve();
-            } else { synth.close(); reject("Error TTS"); }
-        }, e => { synth.close(); reject(e); });
-    });
-}
-
 // ======= 5. PRODUCCIÓN Y AUTOMATIZACIÓN =======
 
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
@@ -217,10 +151,6 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
         });
     });
 }
-
-
-
-
 
 async function autoReporte() {
     if (produciendoVoz) return;
@@ -264,33 +194,6 @@ async function autoRedactorIA() {
 }
 
 // (Las demás funciones generarVoz, redactarIA, obtenerNoticiasBBC se mantienen igual)
-
-// ======= 7. RUTAS API =======
-
-app.post("/redactar-guion", async (req, res) => {
-    try {
-        const promptManual = `Salomé de La Fronterísima. Guion alegre sobre: ${req.body.idea}. Máximo 40 palabras.`;
-        const textoIa = await redactarIA(promptManual);
-        res.json({ guion: textoIa }); 
-    } catch (e) { res.json({ guion: "¡Sintonizas La Fronterísima!" }); }
-});
-
-app.post("/procesar-locucion", async (req, res) => {
-    const pathVoz = `v_man_${Date.now()}.mp3`;
-    try {
-        await generarVoz(req.body.texto, pathVoz);
-        await producirYSubir(pathVoz, "Redactor_ia.mp3", req.body.conFondo);
-        res.send("OK");
-    } catch (e) { res.status(500).send("Error"); }
-});
-
-app.post('/login', (req, res) => {
-    if (req.body.password === KEYS.PASSWORD) res.json({ success: true });
-    else res.status(401).json({ success: false });
-});
-
-app.get("/health", (req, res) => res.sendStatus(200));
-
 
 // ======= 6. INICIO DEL SERVIDOR =======
 const PORT = process.env.PORT || 8000;
