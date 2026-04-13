@@ -23,6 +23,7 @@
     "rss-parser": "^3.13.0",
     "googleapis": "^122.0.0",
     "groq-sdk": "^0.3.3",
+    "sherpa-onnx-node": "^1.10.33"
     "node-telegram-bot-api": "^0.64.0"
   },
   "keywords": [
