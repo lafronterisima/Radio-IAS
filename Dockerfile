@@ -1,28 +1,31 @@
+# Usamos una imagen de Node estable
 FROM node:20-slim
 
-# Instalamos ffmpeg, curl (para el script de descarga) y bzip2 (para descomprimir el modelo)
+# Instalar dependencias del sistema (FFmpeg es vital para tu radio)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    curl \
-    bzip2 \
+    python3 \
+    make \
+    g++ \
     && rm -rf /var/lib/apt/lists/*
 
+# Crear directorio de la app
 WORKDIR /app
 
 # Copiar archivos de dependencias
 COPY package*.json ./
 
-# Instalar dependencias de producción
+# >>> EJECUTAR instalación de producción
 RUN npm install --omit=dev
 
 # Copiar el resto del código
 COPY . .
 
-# Dar permisos de ejecución al script de descarga
-RUN chmod +x download_model.sh
-
+# Exponer el puerto de tu API
 EXPOSE 8000
 
-# IMPORTANTE: Ejecutamos el script de descarga ANTES de iniciar la app
-# Cambiamos server.js por index.js
-CMD ["sh", "-c", "./download_model.sh && node index.js"]
+# Variable de entorno para producción
+ENV NODE_ENV=production
+
+# Comando de arranque
+CMD ["node", "server.js"]
