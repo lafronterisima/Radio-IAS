@@ -42,14 +42,19 @@ async function generarVozGoogle(texto, archivoDestino) {
     },
 };
 
-        const [response] = await client.synthesizeSpeech(request);
-        fs.writeFileSync(archivoDestino, response.audioContent, 'binary');
-        console.log("✅ Audio generado exitosamente");
-    } catch (e) {
-        console.error("❌ Error en Google TTS:", e.message);
-        throw e;
-    }
-}
+       const request = {
+    input: { text: texto },
+    // Usamos es-MX (México) que es el estándar más compatible y de alta calidad
+    voice: { 
+        languageCode: 'es-MX', 
+        name: 'es-MX-Neural2-A' 
+    },
+    audioConfig: { 
+        audioEncoding: 'MP3', 
+        pitch: 0, 
+        speakingRate: 1.05 
+    },
+};
 
 // ======= IA (REDACCIÓN) =======
 async function redactarIA(prompt) {
