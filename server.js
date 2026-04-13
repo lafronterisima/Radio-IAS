@@ -35,7 +35,7 @@ async function generarVozGoogle(texto, archivoDestino) {
         const request = {
             input: { text: texto },
             // Voz 'Neural2-A' es la más avanzada para Colombia (Salomé-like)
-            voice: { languageCode: 'es-CO', name: 'es-CO-Neural2-A' },
+            voice: { languageCode: 'es-CO', name: 'es-CO-Neural2-B' },
             audioConfig: { audioEncoding: 'MP3', pitch: 0, speakingRate: 1.0 },
         };
 
