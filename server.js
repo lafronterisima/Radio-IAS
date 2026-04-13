@@ -28,19 +28,18 @@ async function generarVozGoogle(texto, archivoDestino) {
         const credentials = JSON.parse(KEYS.GOOGLE_CREDS);
         const client = new textToSpeech.TextToSpeechClient({ credentials });
 
-        const request = {
-            input: { text: texto },
-            // CORRECCIÓN: Se usa Wavenet-A porque Neural2 no existe para es-CO
-            voice: { 
-                languageCode: 'es-CO', 
-                name: 'es-CO-Wavenet-A' 
-            },
-            audioConfig: { 
-                audioEncoding: 'MP3', 
-                pitch: 0, 
-                speakingRate: 1.05 // Un toque más de energía para radio
-            },
-        };
+       const request = {
+    input: { text: texto },
+    voice: { 
+        languageCode: 'es-CO', 
+        name: 'es-CO-Standard-A' // Esta es la opción más segura para Colombia hoy
+    },
+    audioConfig: { 
+        audioEncoding: 'MP3', 
+        pitch: 0, 
+        speakingRate: 1.05 
+    },
+};
 
         const [response] = await client.synthesizeSpeech(request);
         fs.writeFileSync(archivoDestino, response.audioContent, 'binary');
