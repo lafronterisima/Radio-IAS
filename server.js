@@ -11,7 +11,7 @@ const Groq = require("groq-sdk");
 const app = express();
 app.use(express.json());
 
-// ======= CONFIGURACIÓN DE RUTAS Y API =======
+// ======= CONFIG =======
 const KEYS = {
     AZURA: process.env.AZURA_KEY?.trim(),
     STATION_ID: process.env.STATION_ID || "24",
@@ -19,20 +19,60 @@ const KEYS = {
     TELEGRAM: process.env.TELEGRAM_TOKEN?.trim()
 };
 
-// Rutas de modelos corregidas para asegurar compatibilidad
+const BASE_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/es/es_CO/salome/low";
+
+// ======= RUTAS =======
 const modelDir = path.join(__dirname, "modelos", "vits-piper-es_CO-salome-low");
 const modelPath = path.join(modelDir, "es_CO-salome-low.onnx");
 const tokensPath = path.join(modelDir, "tokens.txt");
 const dataDirPath = path.join(modelDir, "espeak-ng-data");
 
+// ======= DESCARGA AUTOMÁTICA =======
+async function descargarArchivo(url, destino) {
+    const writer = fs.createWriteStream(destino);
+    const response = await axios({ url, method: "GET", responseType: "stream" });
+    response.data.pipe(writer);
+    return new Promise((res, rej) => {
+        writer.on("finish", res);
+        writer.on("error", rej);
+    });
+}
+
+async function asegurarModelo() {
+    if (!fs.existsSync(modelDir)) fs.mkdirSync(modelDir, { recursive: true });
+
+    if (!fs.existsSync(modelPath)) {
+        console.log("⬇️ Descargando modelo...");
+        await descargarArchivo(`${BASE_URL}/es_CO-salome-low.onnx`, modelPath);
+    }
+
+    if (!fs.existsSync(tokensPath)) {
+        console.log("⬇️ Descargando tokens...");
+        await descargarArchivo(`${BASE_URL}/tokens.txt`, tokensPath);
+    }
+
+    if (!fs.existsSync(dataDirPath)) {
+        console.log("⬇️ Descargando espeak-ng-data...");
+        fs.mkdirSync(dataDirPath, { recursive: true });
+
+        const files = ["phonemes.txt", "voices.txt"];
+        for (const f of files) {
+            await descargarArchivo(`${BASE_URL}/espeak-ng-data/${f}`, path.join(dataDirPath, f));
+        }
+    }
+
+    console.log("✅ Modelo listo");
+}
+
+// ======= SHERPA CONFIG =======
 const SHERPA_CONFIG = {
-    vits: { 
-        model: modelPath, 
-        tokens: tokensPath, 
+    vits: {
+        model: modelPath,
+        tokens: tokensPath,
         dataDir: dataDirPath,
         noiseScale: 0.667,
         noiseW: 0.8,
-        lengthScale: 1.0 
+        lengthScale: 1.0
     },
     modelType: "vits",
     numThreads: 2,
@@ -41,127 +81,120 @@ const SHERPA_CONFIG = {
 
 const groq = new Groq({ apiKey: KEYS.GROQ });
 
-// ======= MOTOR DE REDACCIÓN (GROQ) =======
+// ======= IA =======
 async function redactarIA(prompt) {
     try {
         const completion = await groq.chat.completions.create({
             messages: [
-                { role: "system", content: "Eres Salomé, locutora de La Fronterísima en Pereira. Estilo alegre, profesional y muy breve (máximo 20 segundos de habla)." },
+                { role: "system", content: "Eres Salomé, locutora de La Fronterísima en Pereira. Breve y profesional." },
                 { role: "user", content: prompt }
             ],
             model: "llama-3.3-70b-versatile",
         });
-        return completion.choices[0]?.message?.content || "Sintoniza La Fronterísima, la radio que te mueve.";
+
+        return completion.choices[0]?.message?.content || "La Fronterísima, contigo siempre.";
     } catch (e) {
-        console.error("❌ Error en Groq:", e.message);
-        return "Acompañándote con la mejor energía, esta es La Fronterísima.";
+        console.error("❌ Groq:", e.message);
+        return "La Fronterísima sigue contigo.";
     }
 }
 
-// ======= MOTOR DE VOZ (SHERPA) =======
+// ======= VOZ =======
 async function generarVoz(texto, archivoDestino) {
-    return new Promise((resolve, reject) => {
-        if (!fs.existsSync(modelPath)) {
-            return reject(new Error(`Modelo ausente en: ${modelPath}`));
-        }
-        try {
-            // Se recomienda crear la instancia dentro para evitar fugas de memoria en algunos entornos
-            const tts = new sherpa_onnx.OfflineTts(SHERPA_CONFIG);
-            const audio = tts.generate({ text: texto, sid: 0, speed: 1.0 });
-            audio.save(archivoDestino);
-            resolve();
-        } catch (e) { 
-            reject(new Error(`Error en Sherpa-ONNX: ${e.message}`)); 
-        }
-    });
+    if (!fs.existsSync(modelPath)) throw new Error("Modelo no existe");
+
+    const tts = new sherpa_onnx.OfflineTts(SHERPA_CONFIG);
+    const audio = tts.generate({ text: texto, sid: 0, speed: 1.0 });
+    audio.save(archivoDestino);
 }
 
-// ======= SUBIDA A AZURACAST =======
-async function subirAAzura(archivoLocal, nombreRemoto) {
-    try {
-        if (!fs.existsSync(archivoLocal)) throw new Error("Archivo local no encontrado para subir.");
+// ======= AZURACAST =======
+async function subirAAzura(archivoLocal) {
+    const form = new FormData();
+    form.append('file', fs.createReadStream(archivoLocal));
 
-        const form = new FormData();
-        // Importante: AzuraCast espera el parámetro 'path' o simplemente el archivo
-        form.append('file', fs.createReadStream(archivoLocal));
+    await axios.post(
+        `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`,
+        form,
+        {
+            headers: {
+                ...form.getHeaders(),
+                "X-API-Key": KEYS.AZURA
+            }
+        }
+    );
 
-        const url = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
-        
-        await axios.post(url, form, {
-            headers: { 
-                ...form.getHeaders(), 
-                "X-API-Key": KEYS.AZURA 
-            },
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity
-        });
-        
-        console.log(`✅ Archivo ${nombreRemoto} subido a AzuraCast.`);
-        // Borramos el temporal después de confirmar la subida
-        if (fs.existsSync(archivoLocal)) fs.unlinkSync(archivoLocal);
-    } catch (e) {
-        console.error("❌ Error subiendo a AzuraCast:", e.response?.data || e.message);
-    }
+    console.log("✅ Subido a AzuraCast");
+    fs.unlinkSync(archivoLocal);
 }
 
-// ======= TAREA AUTOMÁTICA =======
+// ======= CICLO RADIO =======
 async function ejecutarCicloRadio() {
-    console.log("🎙️ Iniciando generación de saludo automático...");
-    const hora = new Date().toLocaleTimeString("es-CO", { hour: '2-digit', minute: '2-digit', hour12: true });
-    
-    const guion = await redactarIA(`Saluda a la audiencia de Pereira, menciona que son las ${hora} y que están en La Fronterísima.`);
-    const tempFile = path.join(__dirname, `auto_dj_temp.wav`);
+    console.log("🎙️ Generando audio...");
+
+    const hora = new Date().toLocaleTimeString("es-CO", {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    const texto = await redactarIA(`Di la hora ${hora} en Pereira y saluda`);
+
+    const temp = path.join(__dirname, "temp.wav");
 
     try {
-        await generarVoz(guion, tempFile);
-        await subirAAzura(tempFile, "auto_dj.wav");
+        await generarVoz(texto, temp);
+        await subirAAzura(temp);
     } catch (e) {
-        console.error("🚨 Error en ciclo automático:", e.message);
+        console.error("🚨 Error ciclo:", e.message);
     }
 }
 
-// ======= BOT DE TELEGRAM (CON MANEJO DE CONFLICTO MEJORADO) =======
+// ======= TELEGRAM FIX =======
 let bot;
+
+async function limpiarTelegram() {
+    try {
+        await axios.get(`https://api.telegram.org/bot${KEYS.TELEGRAM}/deleteWebhook`);
+        console.log("🧹 Telegram limpio");
+    } catch {}
+}
+
 function startBot() {
-    if (bot) {
-        console.log("🔄 Reiniciando bot de Telegram...");
-    }
-    
     bot = new TelegramBot(KEYS.TELEGRAM, { polling: true });
 
-    bot.on('polling_error', (err) => {
-        if (err.message.includes('409 Conflict')) {
-            console.warn("⚠️ Conflicto de Telegram detectado (409). Reintentando en 15s...");
+    bot.on("polling_error", (err) => {
+        if (err.message.includes("409")) {
+            console.log("⚠️ Conflicto Telegram...");
             bot.stopPolling();
-            setTimeout(startBot, 15000); // Aumentamos a 15s para dar tiempo a que la otra instancia muera
-        } else {
-            console.error("❌ Error de polling:", err.message);
+            setTimeout(startBot, 15000);
         }
     });
 
-    bot.on('message', (msg) => {
-        if (msg.text === '/start') {
-            bot.sendMessage(msg.chat.id, "¡Hola! Soy Salomé de La Fronterísima. Pronto podré procesar tus pedidos.");
+    bot.on("message", (msg) => {
+        if (msg.text === "/start") {
+            bot.sendMessage(msg.chat.id, "🎙️ Bienvenido a La Fronterísima");
         }
     });
 }
 
-// Ejecutar bot
-startBot();
-
-// ======= SERVIDOR Y RUTAS =======
-app.get('/health', (req, res) => res.status(200).send("Sistema Salomé Operativo ✅"));
+// ======= SERVER =======
+app.get('/health', (req, res) => res.send("OK"));
 
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`
-    =========================================
-    📻 LA FRONTERÍSIMA - SISTEMA AUTOMÁTICO
-    🚀 Puerto: ${PORT} | Motor: Groq + Sherpa
-    ⏰ Ciclo: Cada 15 minutos
-    =========================================
-    `);
 
-    setTimeout(ejecutarCicloRadio, 5000); 
-    setInterval(ejecutarCicloRadio, 15 * 60 * 1000); 
-});
+(async () => {
+    await asegurarModelo();
+    await limpiarTelegram();
+    startBot();
+
+    app.listen(PORT, "0.0.0.0", () => {
+        console.log(`
+📻 LA FRONTERÍSIMA ONLINE
+🚀 Puerto ${PORT}
+⏰ AutoDJ cada 15 min
+        `);
+
+        setTimeout(ejecutarCicloRadio, 5000);
+        setInterval(ejecutarCicloRadio, 15 * 60 * 1000);
+    });
+})();
