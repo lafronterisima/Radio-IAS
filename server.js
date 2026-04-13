@@ -21,17 +21,17 @@ const KEYS = {
 const groq = new Groq({ apiKey: KEYS.GROQ });
 
 // ======= VOZ (GOOGLE CLOUD TTS) =======
-// ======= VOZ (GOOGLE CLOUD TTS) =======
 async function generarVozGoogle(texto, archivoDestino) {
     try {
         console.log("🎙️ Solicitando voz a Google Cloud...");
         
+        // Parseamos las credenciales desde la variable de entorno
         const credentials = JSON.parse(KEYS.GOOGLE_CREDS);
         const client = new textToSpeech.TextToSpeechClient({ credentials });
 
         const request = {
             input: { text: texto },
-            // Esta configuración es la "llave maestra" que no falla:
+            // Configuración estable: es-MX Neural2-A (Voz femenina de alta calidad)
             voice: { 
                 languageCode: 'es-MX', 
                 name: 'es-MX-Neural2-A' 
@@ -45,26 +45,12 @@ async function generarVozGoogle(texto, archivoDestino) {
 
         const [response] = await client.synthesizeSpeech(request);
         fs.writeFileSync(archivoDestino, response.audioContent, 'binary');
-        console.log("✅ Audio generado y guardado");
+        console.log("✅ Audio generado y guardado localmente");
     } catch (e) {
-        console.error("❌ Error real en la API:", e.message);
+        console.error("❌ Error real en la API de Google:", e.message);
         throw e;
     }
 }
-
-       const request = {
-    input: { text: texto },
-    // Usamos es-MX (México) que es el estándar más compatible y de alta calidad
-    voice: { 
-        languageCode: 'es-MX', 
-        name: 'es-MX-Neural2-A' 
-    },
-    audioConfig: { 
-        audioEncoding: 'MP3', 
-        pitch: 0, 
-        speakingRate: 1.05 
-    },
-};
 
 // ======= IA (REDACCIÓN) =======
 async function redactarIA(prompt) {
@@ -73,7 +59,7 @@ async function redactarIA(prompt) {
             messages: [
                 { 
                     role: "system", 
-                    content: "Eres la voz oficial de la emisora La Fronterísima. Tono profesional, alegre, cálido y muy colombiano. Sé breve (máximo 30 palabras)." 
+                    content: "Eres la voz oficial de la emisora La Fronterísima. Tono profesional, alegre, cálido y colombiano. Sé breve (máximo 30 palabras)." 
                 },
                 { role: "user", content: prompt }
             ],
@@ -81,6 +67,7 @@ async function redactarIA(prompt) {
         });
         return completion.choices[0]?.message?.content || "Sintonizas La Fronterísima, la emisora que te mueve.";
     } catch (e) {
+        console.error("❌ Error en Groq:", e.message);
         return "Estás en sintonía de La Fronterísima, música y alegría.";
     }
 }
@@ -102,8 +89,12 @@ async function subirAAzura(archivoLocal) {
             }
         );
 
-        console.log("✅ Locución subida a AzuraCast");
-        if (fs.existsSync(archivoLocal)) fs.unlinkSync(archivoLocal);
+        console.log("✅ Locución subida exitosamente a AzuraCast");
+        
+        // Borramos el archivo temporal después de subirlo
+        if (fs.existsSync(archivoLocal)) {
+            fs.unlinkSync(archivoLocal);
+        }
     } catch (e) {
         console.error("❌ Error subida Azura:", e.message);
     }
@@ -138,9 +129,9 @@ const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Servidor de Locución IA en puerto ${PORT}`);
     
-    // Pequeño delay inicial para asegurar que el sistema está listo
+    // Ejecución inicial a los 5 segundos
     setTimeout(ejecutarCiclo, 5000);
     
-    // Programación cada 15 minutos
+    // Repetir cada 15 minutos
     setInterval(ejecutarCiclo, 15 * 60 * 1000);
 });
