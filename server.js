@@ -21,6 +21,7 @@ const KEYS = {
 const groq = new Groq({ apiKey: KEYS.GROQ });
 
 // ======= VOZ (GOOGLE CLOUD TTS) =======
+// ======= VOZ (GOOGLE CLOUD TTS) =======
 async function generarVozGoogle(texto, archivoDestino) {
     try {
         console.log("🎙️ Solicitando voz a Google Cloud...");
@@ -28,19 +29,28 @@ async function generarVozGoogle(texto, archivoDestino) {
         const credentials = JSON.parse(KEYS.GOOGLE_CREDS);
         const client = new textToSpeech.TextToSpeechClient({ credentials });
 
-     const request = {
-    input: { text: texto },
-    // Usamos es-MX (México) que es el estándar más compatible y de alta calidad
-    voice: { 
-        languageCode: 'es-MX', 
-        name: 'es-ES-Neural2-A' 
-    },
-    audioConfig: { 
-        audioEncoding: 'MP3', 
-        pitch: 0, 
-        speakingRate: 1.05 
-    },
-};
+        const request = {
+            input: { text: texto },
+            // Esta configuración es la "llave maestra" que no falla:
+            voice: { 
+                languageCode: 'es-MX', 
+                name: 'es-MX-Neural2-A' 
+            },
+            audioConfig: { 
+                audioEncoding: 'MP3', 
+                pitch: 0, 
+                speakingRate: 1.05 
+            },
+        };
+
+        const [response] = await client.synthesizeSpeech(request);
+        fs.writeFileSync(archivoDestino, response.audioContent, 'binary');
+        console.log("✅ Audio generado y guardado");
+    } catch (e) {
+        console.error("❌ Error real en la API:", e.message);
+        throw e;
+    }
+}
 
        const request = {
     input: { text: texto },
