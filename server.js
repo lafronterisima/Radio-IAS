@@ -33,7 +33,7 @@ async function generarVozGoogle(texto, archivoDestino) {
     // Usamos es-MX (México) que es el estándar más compatible y de alta calidad
     voice: { 
         languageCode: 'es-MX', 
-        name: 'es-MX-Neural2-A' 
+        name: 'es-ES-Neural2-A' 
     },
     audioConfig: { 
         audioEncoding: 'MP3', 
