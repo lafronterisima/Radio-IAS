@@ -19,12 +19,21 @@ const KEYS = {
     TELEGRAM: process.env.TELEGRAM_TOKEN?.trim()
 };
 
-const modelPath = path.join(__dirname, "modelos", "vits-piper-es_CO-salome-low", "es_CO-salome-low.onnx");
-const tokensPath = path.join(__dirname, "modelos", "vits-piper-es_CO-salome-low", "tokens.txt");
-const dataDirPath = path.join(__dirname, "modelos", "vits-piper-es_CO-salome-low", "espeak-ng-data");
+// Rutas de modelos corregidas para asegurar compatibilidad
+const modelDir = path.join(__dirname, "modelos", "vits-piper-es_CO-salome-low");
+const modelPath = path.join(modelDir, "es_CO-salome-low.onnx");
+const tokensPath = path.join(modelDir, "tokens.txt");
+const dataDirPath = path.join(modelDir, "espeak-ng-data");
 
 const SHERPA_CONFIG = {
-    vits: { model: modelPath, tokens: tokensPath, dataDir: dataDirPath },
+    vits: { 
+        model: modelPath, 
+        tokens: tokensPath, 
+        dataDir: dataDirPath,
+        noiseScale: 0.667,
+        noiseW: 0.8,
+        lengthScale: 1.0 
+    },
     modelType: "vits",
     numThreads: 2,
     debug: 0,
@@ -44,6 +53,7 @@ async function redactarIA(prompt) {
         });
         return completion.choices[0]?.message?.content || "Sintoniza La Fronterísima, la radio que te mueve.";
     } catch (e) {
+        console.error("❌ Error en Groq:", e.message);
         return "Acompañándote con la mejor energía, esta es La Fronterísima.";
     }
 }
@@ -51,81 +61,107 @@ async function redactarIA(prompt) {
 // ======= MOTOR DE VOZ (SHERPA) =======
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
-        if (!fs.existsSync(modelPath)) return reject(new Error(`Modelo ausente en: ${modelPath}`));
+        if (!fs.existsSync(modelPath)) {
+            return reject(new Error(`Modelo ausente en: ${modelPath}`));
+        }
         try {
+            // Se recomienda crear la instancia dentro para evitar fugas de memoria en algunos entornos
             const tts = new sherpa_onnx.OfflineTts(SHERPA_CONFIG);
             const audio = tts.generate({ text: texto, sid: 0, speed: 1.0 });
             audio.save(archivoDestino);
             resolve();
-        } catch (e) { reject(e); }
+        } catch (e) { 
+            reject(new Error(`Error en Sherpa-ONNX: ${e.message}`)); 
+        }
     });
 }
 
 // ======= SUBIDA A AZURACAST =======
 async function subirAAzura(archivoLocal, nombreRemoto) {
     try {
+        if (!fs.existsSync(archivoLocal)) throw new Error("Archivo local no encontrado para subir.");
+
         const form = new FormData();
-        form.append('path', ''); // Sube a la raíz de Media
-        form.append('file', fs.createReadStream(archivoLocal), { filename: nombreRemoto });
+        // Importante: AzuraCast espera el parámetro 'path' o simplemente el archivo
+        form.append('file', fs.createReadStream(archivoLocal));
 
         const url = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
         
         await axios.post(url, form, {
-            headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
-            timeout: 60000
+            headers: { 
+                ...form.getHeaders(), 
+                "X-API-Key": KEYS.AZURA 
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity
         });
         
         console.log(`✅ Archivo ${nombreRemoto} subido a AzuraCast.`);
+        // Borramos el temporal después de confirmar la subida
         if (fs.existsSync(archivoLocal)) fs.unlinkSync(archivoLocal);
     } catch (e) {
         console.error("❌ Error subiendo a AzuraCast:", e.response?.data || e.message);
     }
 }
 
-// ======= TAREA AUTOMÁTICA (CADA 15 MINUTOS) =======
+// ======= TAREA AUTOMÁTICA =======
 async function ejecutarCicloRadio() {
     console.log("🎙️ Iniciando generación de saludo automático...");
     const hora = new Date().toLocaleTimeString("es-CO", { hour: '2-digit', minute: '2-digit', hour12: true });
     
     const guion = await redactarIA(`Saluda a la audiencia de Pereira, menciona que son las ${hora} y que están en La Fronterísima.`);
-    const tempFile = path.join(__dirname, `auto_dj_${Date.now()}.wav`);
+    const tempFile = path.join(__dirname, `auto_dj_temp.wav`);
 
     try {
         await generarVoz(guion, tempFile);
-        // Lo subimos con un nombre fijo para que AzuraCast lo identifique siempre igual (ej: auto_dj.wav)
         await subirAAzura(tempFile, "auto_dj.wav");
     } catch (e) {
         console.error("🚨 Error en ciclo automático:", e.message);
     }
 }
 
-// ======= BOT DE TELEGRAM (ANTICONFLICTO) =======
+// ======= BOT DE TELEGRAM (CON MANEJO DE CONFLICTO MEJORADO) =======
 let bot;
 function startBot() {
-    if (bot) bot.stopPolling();
+    if (bot) {
+        console.log("🔄 Reiniciando bot de Telegram...");
+    }
+    
     bot = new TelegramBot(KEYS.TELEGRAM, { polling: true });
+
     bot.on('polling_error', (err) => {
         if (err.message.includes('409 Conflict')) {
+            console.warn("⚠️ Conflicto de Telegram detectado (409). Reintentando en 15s...");
             bot.stopPolling();
-            setTimeout(startBot, 10000);
+            setTimeout(startBot, 15000); // Aumentamos a 15s para dar tiempo a que la otra instancia muera
+        } else {
+            console.error("❌ Error de polling:", err.message);
+        }
+    });
+
+    bot.on('message', (msg) => {
+        if (msg.text === '/start') {
+            bot.sendMessage(msg.chat.id, "¡Hola! Soy Salomé de La Fronterísima. Pronto podré procesar tus pedidos.");
         }
     });
 }
+
+// Ejecutar bot
 startBot();
 
 // ======= SERVIDOR Y RUTAS =======
-app.get('/health', (req, res) => res.status(200).send("OK"));
+app.get('/health', (req, res) => res.status(200).send("Sistema Salomé Operativo ✅"));
 
-app.listen(8000, "0.0.0.0", () => {
+const PORT = process.env.PORT || 8000;
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`
     =========================================
     📻 LA FRONTERÍSIMA - SISTEMA AUTOMÁTICO
-    🚀 Puerto: 8000 | Motor: Groq + Sherpa
+    🚀 Puerto: ${PORT} | Motor: Groq + Sherpa
     ⏰ Ciclo: Cada 15 minutos
     =========================================
     `);
 
-    // Iniciar ciclo: Primero a los 10 segundos de arrancar, luego cada 15 min
-    setTimeout(ejecutarCicloRadio, 10000); 
+    setTimeout(ejecutarCicloRadio, 5000); 
     setInterval(ejecutarCicloRadio, 15 * 60 * 1000); 
 });
