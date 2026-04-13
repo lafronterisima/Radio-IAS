@@ -33,10 +33,11 @@ const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
 // Configuración Sherpa-ONNX (Voz Salomé local)
 const SHERPA_CONFIG = {
-    vits: {
-        model: "./modelos/vits-piper-es_CO-salome-medium/es_CO-salome-medium.onnx",
-        tokens: "./modelos/vits-piper-es_CO-salome-medium/tokens.txt",
-        dataDir: "./modelos/vits-piper-es_CO-salome-medium/espeak-ng-data",
+   vits: {
+        // Ruta actualizada al modelo 'low'
+        model: "./modelos/vits-piper-es_CO-salome-low/es_CO-salome-low.onnx",
+        tokens: "./modelos/vits-piper-es_CO-salome-low/tokens.txt",
+        dataDir: "./modelos/vits-piper-es_CO-salome-low/espeak-ng-data",
     },
     modelType: "vits",
     numThreads: 2,
