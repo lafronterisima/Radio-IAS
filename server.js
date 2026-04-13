@@ -1,13 +1,13 @@
 require('dotenv').config();
 const express = require("express");
 const axios = require("axios");
-const sdk = require("microsoft-cognitiveservices-speech-sdk");
 const fs = require("fs");
 const FormData = require("form-data");
 const { exec } = require("child_process");
 const path = require("path");
 const TelegramBot = require('node-telegram-bot-api');
 const { pipeline } = require('stream/promises');
+const gtts = require('gtts');  // TTS gratuito
 
 const app = express();
 app.use(express.json());
@@ -20,9 +20,10 @@ const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
 const KEYS = { 
     GROQ: safeTrim(process.env.GROQ_API_KEY),
     COHERE: safeTrim(process.env.COHERE_API_KEY),
+    // Azure y ElevenLabs ya NO son necesarios para TTS, pero se conservan por compatibilidad
     AZURE: safeTrim(process.env.AZURE_SPEECH_KEY),
     AZURE_REGION: safeTrim(process.env.AZURE_REGION) || "eastus",
-    ELEVEN_KEY: safeTrim(process.env.ELEVENLABS_KEY), // Corregido: : en lugar de =
+    ELEVEN_KEY: safeTrim(process.env.ELEVENLABS_KEY),
     AZURA: safeTrim(process.env.AZURA_KEY),
     STATION_ID: sID,
     PASSWORD: safeTrim(process.env.APP_PASSWORD),
@@ -159,71 +160,23 @@ async function redactarIA(prompt) {
     }
 }
 
-// ======= 5. VOZ Y PRODUCCIÓN (DUAL: AZURE + ELEVENLABS) =======
-
+// ======= 5. VOZ Y PRODUCCIÓN (GRATIS CON GTTS) =======
+// Función reemplazada: usa gtts (Google Text-to-Speech) - completamente gratis, sin API key
 async function generarVoz(texto, archivoDestino) {
-    // 1. INTENTO CON AZURE (Principal)
-    if (KEYS.AZURE && KEYS.AZURE.length > 5) {
-        try {
-            console.log("🎙️ Generando voz con Azure...");
-            const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
-            config.speechSynthesisVoiceName = "es-CO-SalomeNeural";
-            const synth = new sdk.SpeechSynthesizer(config);
-            
-            const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
-                <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.0" xmlns:mstts="https://www.w3.org/2001/mstts">
-                <prosody rate="0%">${texto}</prosody></mstts:express-as></voice></speak>`;
-            
-            await new Promise((resolve, reject) => {
-                synth.speakSsmlAsync(ssml, r => {
-                    if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-                        fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
-                        synth.close();
-                        resolve();
-                    } else {
-                        synth.close();
-                        reject(new Error("Azure Error"));
-                    }
-                }, e => {
-                    synth.close();
-                    reject(e);
-                });
-            });
-            return; 
-        } catch (e) {
-            console.log("⚠️ Azure falló. Intentando ElevenLabs como respaldo...");
-        }
-    }
-
-    // 2. RESPALDO CON ELEVENLABS
-    if (KEYS.ELEVEN_KEY) {
-        try {
-            console.log("🚀 Usando respaldo de ElevenLabs...");
-            const voiceId = "cgSgspJ2msm6clMCu97v"; 
-            const response = await axios({
-                method: 'post',
-                url: `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-                data: {
-                    text: texto,
-                    model_id: "eleven_multilingual_v2",
-                    voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-                },
-                headers: { 
-                    'xi-api-key': KEYS.ELEVEN_KEY, 
-                    'Content-Type': 'application/json' 
-                },
-                responseType: 'stream'
-            });
-
-            await pipeline(response.data, fs.createWriteStream(archivoDestino));
-            return;
-        } catch (err) {
-            console.error("❌ Error crítico: Sin servicios de voz disponibles.");
-            throw err;
-        }
-    } else {
-        console.error("❌ Error: Azure falló y no hay ELEVENLABS_KEY.");
-    }
+    return new Promise((resolve, reject) => {
+        console.log("🎙️ Generando voz con gTTS (gratuito)...");
+        // Idioma español de Colombia (es-co) o español genérico
+        const tts = new gtts(texto, 'es');
+        tts.save(archivoDestino, (err, result) => {
+            if (err) {
+                console.error("❌ Error en gTTS:", err);
+                reject(new Error("Fallo la generación de voz con gTTS"));
+            } else {
+                console.log("✅ Voz generada correctamente con gTTS");
+                resolve();
+            }
+        });
+    });
 }
 
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
