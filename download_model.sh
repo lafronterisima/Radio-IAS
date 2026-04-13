@@ -1,30 +1,24 @@
-cat << 'EOF' > download_model.sh
 #!/bin/bash
-# Crear carpeta para modelos si no existe
 mkdir -p modelos
 cd modelos
 
-# URL del modelo Salomé (Colombiano) de Sherpa-ONNX
-MODEL_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-es_CO-salome-medium.tar.bz2"
-FILE="vits-piper-es_CO-salome-medium.tar.bz2"
+# URL del modelo Salomé SMALL (Mucho más liviano)
+MODEL_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-es_CO-salome-low.tar.bz2"
+FILE="vits-piper-es_CO-salome-low.tar.bz2"
 
-if [ ! -f "vits-piper-es_CO-salome-medium/es_CO-salome-medium.onnx" ]; then
-    echo "⬇️ Descargando modelo de voz local (Salomé)..."
-    
-    # Intentar descargar con curl (común en servidores nube)
+if [ ! -f "vits-piper-es_CO-salome-low/es_CO-salome-low.onnx" ]; then
+    echo "⬇️ Descargando modelo LIVIANO (Salomé)..."
     curl -L -o "$FILE" "$MODEL_URL"
 
-    # Validar que el archivo descargado sea real (mínimo 10MB)
-    if [ -f "$FILE" ] && [ $(wc -c <"$FILE") -ge 10000000 ]; then
-        echo "📦 Descomprimiendo archivos..."
+    if [ -f "$FILE" ] && [ $(wc -c <"$FILE") -ge 5000000 ]; then
+        echo "📦 Descomprimiendo..."
         tar xjf "$FILE"
         rm "$FILE"
-        echo "✅ Modelo listo para usar."
+        echo "✅ Modelo liviano listo."
     else
-        echo "❌ Error: La descarga falló o el archivo está incompleto."
+        echo "❌ Error en descarga."
         exit 1
     fi
 else
-    echo "✔ El modelo ya existe, saltando descarga."
+    echo "✔ El modelo ya existe."
 fi
-EOF
