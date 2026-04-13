@@ -17,11 +17,12 @@ app.use(express.static(path.join(__dirname, "public")));
 const safeTrim = (val) => val ? val.trim() : "";
 const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
 
-const KEYS = {
+const KEYS = { 
     GROQ: safeTrim(process.env.GROQ_API_KEY),
     COHERE: safeTrim(process.env.COHERE_API_KEY),
     AZURE: safeTrim(process.env.AZURE_SPEECH_KEY),
     AZURE_REGION: safeTrim(process.env.AZURE_REGION) || "eastus",
+    ELEVEN_KEY = safeTrim(process.env.ELEVENLABS_KEY),
     AZURA: safeTrim(process.env.AZURA_KEY),
     STATION_ID: sID,
     PASSWORD: safeTrim(process.env.APP_PASSWORD),
@@ -161,24 +162,70 @@ async function redactarIA(prompt) {
 // ======= 5. VOZ Y PRODUCCIÓN =======
 
 async function generarVoz(texto, archivoDestino) {
-    return new Promise((resolve, reject) => {
-        const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
-        // Voz clara y profesional colombiana
-        config.speechSynthesisVoiceName = "es-CO-SalomeNeural"; 
-        const synth = new sdk.SpeechSynthesizer(config);
-        
-        // Ajuste neutral: Sin exceso de alegría local, más formal pero animado
-        const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
-            <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.0" xmlns:mstts="https://www.w3.org/2001/mstts">
-            <prosody rate="0%">${texto}</prosody></mstts:express-as></voice></speak>`;
-        
-        synth.speakSsmlAsync(ssml, r => {
-            if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
-                fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
-                synth.close(); resolve();
-            } else { synth.close(); reject("Error TTS"); }
-        }, e => { synth.close(); reject(e); });
-    });
+    // 1. INTENTO CON AZURE (Principal - Recurso "Radio")
+    if (KEYS.AZURE && KEYS.AZURE.length > 5) {
+        try {
+            console.log("🎙️ Generando voz con Azure...");
+            const config = sdk.SpeechConfig.fromSubscription(KEYS.AZURE, KEYS.AZURE_REGION);
+            config.speechSynthesisVoiceName = "es-CO-SalomeNeural";
+            const synth = new sdk.SpeechSynthesizer(config);
+            
+            // SSML para voz profesional neutral de Colombia
+            const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="es-CO">
+                <voice name="es-CO-SalomeNeural"><mstts:express-as style="cheerful" styledegree="1.0" xmlns:mstts="https://www.w3.org/2001/mstts">
+                <prosody rate="0%">${texto}</prosody></mstts:express-as></voice></speak>`;
+            
+            await new Promise((resolve, reject) => {
+                synth.speakSsmlAsync(ssml, r => {
+                    if (r.reason === sdk.ResultReason.SynthesizingAudioCompleted) {
+                        fs.writeFileSync(archivoDestino, Buffer.from(r.audioData));
+                        synth.close();
+                        resolve();
+                    } else {
+                        synth.close();
+                        reject(new Error("Azure deshabilitado o llave inválida"));
+                    }
+                }, e => {
+                    synth.close();
+                    reject(e);
+                });
+            });
+            return; // Si tuvo éxito, sale de la función aquí
+        } catch (e) {
+            console.log("⚠️ Azure falló. Intentando ElevenLabs como respaldo...");
+        }
+    }
+
+    // 2. RESPALDO CON ELEVENLABS (Si Azure falla)
+    const ELEVEN_KEY = process.env.ELEVENLABS_KEY;
+    if (ELEVEN_KEY) {
+        try {
+            console.log("🚀 Usando respaldo de ElevenLabs...");
+            const voiceId = "cgSgspJ2msm6clMCu97v"; // Voz profesional
+            const response = await axios({
+                method: 'post',
+                url: `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+                data: {
+                    text: texto,
+                    model_id: "eleven_multilingual_v2",
+                    voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                },
+                headers: { 
+                    'xi-api-key': ELEVEN_KEY, 
+                    'Content-Type': 'application/json' 
+                },
+                responseType: 'stream'
+            });
+
+            await pipeline(response.data, fs.createWriteStream(archivoDestino));
+            return;
+        } catch (err) {
+            console.error("❌ Error crítico: Ningún servicio de voz pudo procesar el texto.");
+            throw err;
+        }
+    } else {
+        console.error("❌ Error: Azure falló y no hay ELEVENLABS_KEY configurada.");
+    }
 }
 
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
