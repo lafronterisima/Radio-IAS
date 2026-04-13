@@ -1,31 +1,35 @@
-# Usamos una imagen de Node estable
+# Imagen base ligera pero compatible
 FROM node:20-slim
 
-# Instalar dependencias del sistema (FFmpeg es vital para tu radio)
+# Instalar dependencias necesarias para Sherpa ONNX + audio
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
     make \
     g++ \
+    cmake \
+    git \
+    libsndfile1 \
+    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Crear directorio de la app
+# Crear directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de dependencias
+# Copiar dependencias primero (mejor cache)
 COPY package*.json ./
 
-# >>> EJECUTAR instalación de producción
+# Instalar dependencias Node
 RUN npm install --omit=dev
 
 # Copiar el resto del código
 COPY . .
 
-# Exponer el puerto de tu API
+# Puerto de tu API
 EXPOSE 8000
 
-# Variable de entorno para producción
+# Variable entorno
 ENV NODE_ENV=production
 
-# Comando de arranque
+# Comando de inicio
 CMD ["node", "server.js"]
