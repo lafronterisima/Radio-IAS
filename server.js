@@ -31,19 +31,22 @@ const KEYS = {
 
 const AZURA_API_UPLOAD = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`;
 
-// Configuración de Sherpa-ONNX (Voz de Salomé)
+// ======= 2. CONFIGURACIÓN SHERPA-ONNX (CORREGIDA) =======
+// El error "Please provide exactly one tts model" ocurre si las rutas son nulas o incorrectas.
+const modelBase = path.join(__dirname, "modelos", "vits-piper-es_CO-salome-low");
+
 const SHERPA_CONFIG = {
     vits: {
-        model: "./modelos/vits-piper-es_CO-salome-low/es_CO-salome-low.onnx",
-        tokens: "./modelos/vits-piper-es_CO-salome-low/tokens.txt",
-        dataDir: "./modelos/vits-piper-es_CO-salome-low/espeak-ng-data",
+        model: path.join(modelBase, "es_CO-salome-low.onnx"),
+        tokens: path.join(modelBase, "tokens.txt"),
+        dataDir: path.join(modelBase, "espeak-ng-data"),
     },
     modelType: "vits",
     numThreads: 2,
     debug: 0,
 };
 
-// ======= 2. TELEGRAM BOT (SALUDOS) =======
+// ======= 3. TELEGRAM BOT =======
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 let ultimoSaludo = { texto: "", fecha: null };
 
@@ -53,11 +56,16 @@ bot.on('message', (msg) => {
     bot.sendMessage(msg.chat.id, "¡Recibido! Salomé lo presentará pronto en La Fronterísima.");
 });
 
-// ======= 3. MOTOR DE AUDIO (SHERPA + FFMPEG) =======
+// ======= 4. MOTOR DE AUDIO =======
 
 async function generarVoz(texto, archivoDestino) {
     return new Promise((resolve, reject) => {
         try {
+            // Verificación de archivos antes de iniciar Sherpa
+            if (!fs.existsSync(SHERPA_CONFIG.vits.model)) {
+                return reject(new Error(`Modelo no encontrado en: ${SHERPA_CONFIG.vits.model}`));
+            }
+
             const tts = new sherpa_onnx.OfflineTts(SHERPA_CONFIG);
             const audio = tts.generate({ text: texto, sid: 0, speed: 1.0 });
             const wavPath = archivoDestino.replace('.mp3', '.wav');
@@ -110,7 +118,6 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
                         timeout: 90000
                     });
 
-                    console.log(`✅ [${nombreFinal}] subido correctamente.`);
                     [archivoVoz, tempSalida].forEach(f => { if(fs.existsSync(f)) fs.unlinkSync(f); });
                     resolve();
                 } catch (e) { reject(e); }
@@ -120,21 +127,22 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     });
 }
 
-// ======= 4. INTELIGENCIA ARTIFICIAL (GEMINI) =======
+// ======= 5. INTELIGENCIA ARTIFICIAL =======
 
 async function redactarIA(prompt) {
     try {
         const genAI = new GoogleGenerativeAI(KEYS.GEMINI);
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const system = "Eres Salomé, locutora dinámica de La Fronterísima. Habla en español de Colombia. Sé breve y profesional.";
+        const system = "Eres Salomé, locutora de La Fronterísima. Habla en español de Colombia, dinámica y breve.";
         const result = await model.generateContent(`${system}\n\n${prompt}`);
         return result.response.text().replace(/[*#_~]/g, '').trim();
     } catch (e) { 
-        return "Sintoniza la mejor energía con La Fronterísima, siempre contigo."; 
+        console.error("⚠️ IA Error:", e.message);
+        return "Sintoniza La Fronterísima, la radio que te mueve."; 
     }
 }
 
-// ======= 5. RUTAS Y AUTENTICACIÓN =======
+// ======= 6. RUTAS (LOGIN EN INGLÉS) =======
 
 app.post('/login', (req, res) => {
     const { password } = req.body;
@@ -157,15 +165,15 @@ app.post("/procesar-locucion", async (req, res) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ======= 6. AUTOMATIZACIÓN DE LA EMISORA =======
+// ======= 7. AUTOMATIZACIÓN =======
 
 async function autoLocucion() {
     try {
-        const hora = new Date().toLocaleTimeString("es-CO", { hour: '2-digit', minute: '2-digit' });
+        const hora = new Date().toLocaleTimeString("es-CO", { hour: '2-digit', minute: '2-digit', hour12: true });
         let prompt = `Anuncia que son las ${hora} en La Fronterísima.`;
         
         if (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 30 * 60 * 1000)) {
-            prompt += ` Además, saluda al oyente que dijo: "${ultimoSaludo.texto}"`;
+            prompt += ` Saluda a un oyente que envió un mensaje: "${ultimoSaludo.texto}"`;
             ultimoSaludo.fecha = null;
         }
 
@@ -173,10 +181,11 @@ async function autoLocucion() {
         const pathVoz = `v_auto_${Date.now()}.mp3`;
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "dj_auto.mp3", true);
-    } catch (e) { console.error("Error en autoLocucion:", e.message); }
+        console.log("✅ Reporte automático generado.");
+    } catch (e) { console.error("❌ Error Auto:", e.message); }
 }
 
-// ======= 7. LANZAMIENTO =======
+// ======= 8. LANZAMIENTO =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`-----------------------------------------`);
@@ -184,7 +193,6 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Puerto: ${PORT} | Motor: Sherpa-ONNX`);
     console.log(`-----------------------------------------`);
     
-    // Ciclos automáticos
-    setInterval(autoLocucion, 30 * 60 * 1000); // Cada 30 minutos
-    setTimeout(autoLocucion, 10000); // Primera ejecución a los 10s
+    setInterval(autoLocucion, 30 * 60 * 1000); 
+    setTimeout(autoLocucion, 10000); 
 });
