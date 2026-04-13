@@ -28,11 +28,12 @@ async function generarVozGoogle(texto, archivoDestino) {
         const credentials = JSON.parse(KEYS.GOOGLE_CREDS);
         const client = new textToSpeech.TextToSpeechClient({ credentials });
 
-       const request = {
+     const request = {
     input: { text: texto },
+    // Usamos es-MX (México) que es el estándar más compatible y de alta calidad
     voice: { 
-        languageCode: 'es-CO', 
-        name: 'es-CO-Standard-A' // Esta es la opción más segura para Colombia hoy
+        languageCode: 'es-MX', 
+        name: 'es-MX-Neural2-A' 
     },
     audioConfig: { 
         audioEncoding: 'MP3', 
