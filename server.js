@@ -4,9 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const axios = require("axios");
 const FormData = require("form-data");
-const TelegramBot = require('node-telegram-bot-api');
 const Groq = require("groq-sdk");
-const textToSpeech = require('@google-cloud/text-to-speech'); // Google TTS
+const textToSpeech = require('@google-cloud/text-to-speech');
 
 const app = express();
 app.use(express.json());
@@ -16,8 +15,6 @@ const KEYS = {
     AZURA: process.env.AZURA_KEY?.trim(),
     STATION_ID: process.env.STATION_ID || "24",
     GROQ: process.env.GROQ_API_KEY?.trim(),
-    TELEGRAM: process.env.TELEGRAM_TOKEN?.trim(),
-    // Aquí pegas el contenido del JSON de tu Service Account
     GOOGLE_CREDS: process.env.GOOGLE_CREDS 
 };
 
@@ -28,22 +25,26 @@ async function generarVozGoogle(texto, archivoDestino) {
     try {
         console.log("🎙️ Solicitando voz a Google Cloud...");
         
-        // Parseamos las credenciales desde la variable de entorno
         const credentials = JSON.parse(KEYS.GOOGLE_CREDS);
         const client = new textToSpeech.TextToSpeechClient({ credentials });
 
         const request = {
             input: { text: texto },
-            // Voz 'Neural2-A' es la más avanzada para Colombia (Salomé-like)
-            voice: { languageCode: 'es-CO', name: 'es-CO-Neural2-B' },
-            audioConfig: { audioEncoding: 'MP3', pitch: 0, speakingRate: 1.0 },
+            // CORRECCIÓN: Se usa Wavenet-A porque Neural2 no existe para es-CO
+            voice: { 
+                languageCode: 'es-CO', 
+                name: 'es-CO-Wavenet-A' 
+            },
+            audioConfig: { 
+                audioEncoding: 'MP3', 
+                pitch: 0, 
+                speakingRate: 1.05 // Un toque más de energía para radio
+            },
         };
 
         const [response] = await client.synthesizeSpeech(request);
-        
-        // Guardamos el buffer directamente como MP3
         fs.writeFileSync(archivoDestino, response.audioContent, 'binary');
-        console.log("✅ Audio generado por Google Cloud");
+        console.log("✅ Audio generado exitosamente");
     } catch (e) {
         console.error("❌ Error en Google TTS:", e.message);
         throw e;
@@ -55,14 +56,17 @@ async function redactarIA(prompt) {
     try {
         const completion = await groq.chat.completions.create({
             messages: [
-                { role: "system", content: "Eres la voz oficial de La Fronterísima. Tono profesional, alegre y colombiano. Sé breve (máximo 35 palabras)." },
+                { 
+                    role: "system", 
+                    content: "Eres la voz oficial de la emisora La Fronterísima. Tono profesional, alegre, cálido y muy colombiano. Sé breve (máximo 30 palabras)." 
+                },
                 { role: "user", content: prompt }
             ],
             model: "llama-3.3-70b-versatile",
         });
-        return completion.choices[0]?.message?.content || "La Fronterísima, conectando tus sentidos.";
+        return completion.choices[0]?.message?.content || "Sintonizas La Fronterísima, la emisora que te mueve.";
     } catch (e) {
-        return "Sintonizas La Fronterísima en Pereira y el mundo.";
+        return "Estás en sintonía de La Fronterísima, música y alegría.";
     }
 }
 
@@ -70,8 +74,7 @@ async function redactarIA(prompt) {
 async function subirAAzura(archivoLocal) {
     try {
         const form = new FormData();
-        // Nota: Google entrega MP3, así que lo subimos con extensión .mp3
-        form.append('file', fs.createReadStream(archivoLocal), { filename: 'dj_google.mp3' });
+        form.append('file', fs.createReadStream(archivoLocal), { filename: 'locucion_ia.mp3' });
 
         await axios.post(
             `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`,
@@ -84,16 +87,16 @@ async function subirAAzura(archivoLocal) {
             }
         );
 
-        console.log("✅ Subido a AzuraCast");
+        console.log("✅ Locución subida a AzuraCast");
         if (fs.existsSync(archivoLocal)) fs.unlinkSync(archivoLocal);
     } catch (e) {
-        console.error("❌ Error subida:", e.message);
+        console.error("❌ Error subida Azura:", e.message);
     }
 }
 
 // ======= CICLO DE RADIO =======
 async function ejecutarCiclo() {
-    console.log("⏰ Iniciando ciclo automático (Google TTS)...");
+    console.log("⏰ Iniciando ciclo automático...");
     
     const hora = new Date().toLocaleTimeString("es-CO", {
         timeZone: "America/Bogota",
@@ -102,26 +105,27 @@ async function ejecutarCiclo() {
         hour12: true
     });
 
-    const texto = await redactarIA(`Saluda y di que son las ${hora} en La Fronterísima.`);
-    const tempMP3 = path.join(__dirname, `google_voice_${Date.now()}.mp3`);
+    const texto = await redactarIA(`Saluda con energía y menciona que son las ${hora} en La Fronterísima.`);
+    const tempMP3 = path.join(__dirname, `locucion_${Date.now()}.mp3`);
 
     try {
         await generarVozGoogle(texto, tempMP3);
         await subirAAzura(tempMP3);
     } catch (e) {
-        console.error("🚨 Fallo en el ciclo:", e.message);
+        console.error("🚨 Fallo crítico en el ciclo:", e.message);
     }
 }
 
-// ======= BOOT / SERVER =======
-app.get('/health', (req, res) => res.send("OK"));
+// ======= SERVER =======
+app.get('/health', (req, res) => res.send("Servidor de Radio Activo"));
 
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Servidor Google TTS activo en puerto ${PORT}`);
+    console.log(`🚀 Servidor de Locución IA en puerto ${PORT}`);
     
-    // Ejecutar primer locución a los 5 segundos
+    // Pequeño delay inicial para asegurar que el sistema está listo
     setTimeout(ejecutarCiclo, 5000);
-    // Repetir cada 15 minutos
+    
+    // Programación cada 15 minutos
     setInterval(ejecutarCiclo, 15 * 60 * 1000);
 });
