@@ -41,26 +41,57 @@ const polly = new PollyClient({
 
 // ======= 2. TELEGRAM =======
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
+
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
+let cancionRecienDescubierta = null;
+
+bot.on('polling_error', () => {}); 
 
 bot.on('message', async (msg) => {
     if (!msg.text) return;
+
     if (msg.text.startsWith('/pedir ')) {
         const busqueda = msg.text.replace('/pedir ', '').trim();
         if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime el nombre de la canción! 🎵");
+
         bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}"...`);
         const track = await buscarMusicaJamendo(busqueda, true); 
+
         if (track) {
             const exito = await descargarYSubirAzura(track);
             if (exito) {
-                ultimoSaludo = { nombre: msg.from.first_name || "un oyente", texto: `pidió la canción "${track.info}"`, fecha: new Date() };
-                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Lupe la presentará pronto.`);
+                ultimoSaludo = { 
+                    nombre: msg.from.first_name || "un oyente", 
+                    texto: `pidió la canción "${track.info}"`, 
+                    fecha: new Date() 
+                };
+                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Salomé la presentará pronto.`);
+            } else {
+                bot.sendMessage(msg.chat.id, `❌ Error al procesar el archivo.`);
             }
+        } else {
+            bot.sendMessage(msg.chat.id, `❌ No encontré esa canción.`);
         }
         return;
     }
+
+    if (msg.text === '/descubrir') {
+        bot.sendMessage(msg.chat.id, "🔎 Buscando un éxito rumbero...");
+        const track = await buscarMusicaJamendo('latin', false);
+        if (track) {
+            await descargarYSubirAzura(track);
+            cancionRecienDescubierta = track.info;
+            bot.sendMessage(msg.chat.id, `✅ ¡Nuevo estreno! "${track.info}".`);
+        }
+        return;
+    }
+
     if (!msg.text.startsWith('/')) {
-        ultimoSaludo = { nombre: msg.from.first_name || "un oyente", texto: msg.text, fecha: new Date() };
+        ultimoSaludo = {
+            nombre: msg.from.first_name || "un oyente",
+            texto: msg.text,
+            fecha: new Date()
+        };
         bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo saldrá al aire. 🎙️");
     }
 });
@@ -90,8 +121,8 @@ async function descargarYSubirAzura(track) {
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
-                    form.append('file', fs.createReadStream(tempFile), { filename: "estreno.mp3" });
-                    form.append('path', `Musica_Nueva/estreno.mp3`);
+                    form.append('file', fs.createReadStream(tempFile), { filename: "estreno_jamendo.mp3" });
+                    form.append('path', `Musica_Nueva/estreno_jamendo.mp3`);
                     await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA } });
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
