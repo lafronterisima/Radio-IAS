@@ -148,26 +148,47 @@ async function redactarIA(prompt) {
 
 async function generarVoz(texto, archivoDestino) {
     const params = {
-        Text: `<speak><prosody rate="fast" pitch="+5%">${texto}</prosody></speak>`,
+        // Mantenemos el SSML al mínimo para evitar errores de compatibilidad
+        Text: `<speak>${texto}</speak>`,
         OutputFormat: "mp3",
-        VoiceId: "Lupe",
-        Engine: "neural",
+        VoiceId: "Lupe", // Lupe es la voz recomendada para tu radio
+        Engine: "neural", 
         TextType: "ssml"
     };
 
     try {
         const command = new SynthesizeSpeechCommand(params);
         const { AudioStream } = await polly.send(command);
+
+        // Convertimos el stream a Buffer (necesario en AWS SDK v3)
         const buffer = await new Promise((resolve, reject) => {
             const chunks = [];
             AudioStream.on("data", (chunk) => chunks.push(chunk));
             AudioStream.on("end", () => resolve(Buffer.concat(chunks)));
             AudioStream.on("error", reject);
         });
+
         fs.writeFileSync(archivoDestino, buffer);
+        console.log("✅ Locución de Lupe generada correctamente.");
     } catch (e) {
-        console.error("Error Polly:", e.message);
-        throw e;
+        // Si el motor Neural da problemas, el sistema cambia automáticamente a Estándar
+        if (e.message.includes("Unsupported") || e.message.includes("Neural")) {
+            console.warn("⚠️ Motor Neural no compatible con esta solicitud. Reintentando con Estándar...");
+            params.Engine = "standard";
+            const retryCommand = new SynthesizeSpeechCommand(params);
+            const { AudioStream: retryStream } = await polly.send(retryCommand);
+            
+            const retryBuffer = await new Promise((resolve, reject) => {
+                const chunks = [];
+                retryStream.on("data", (chunk) => chunks.push(chunk));
+                retryStream.on("end", () => resolve(Buffer.concat(chunks)));
+                retryStream.on("error", reject);
+            });
+            fs.writeFileSync(archivoDestino, retryBuffer);
+        } else {
+            console.error("❌ Error crítico en Polly:", e.message);
+            throw e;
+        }
     }
 }
 
