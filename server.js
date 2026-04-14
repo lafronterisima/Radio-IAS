@@ -32,67 +32,81 @@ const KEYS = {
 const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
-// Clientes de IA y Voz
 const openai = new OpenAI({ apiKey: KEYS.OPENAI });
 const polly = new PollyClient({
     region: KEYS.AWS_REGION,
     credentials: { accessKeyId: KEYS.AWS_ID, secretAccessKey: KEYS.AWS_SECRET }
 });
 
-// ======= 2. TELEGRAM =======
+// ======= 2. TELEGRAM (SALUDOS, PEDIDOS Y NOTAS DE VOZ) =======
 const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
-
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
-let cancionRecienDescubierta = null;
 
 bot.on('polling_error', () => {}); 
 
+// --- Manejo de Notas de Voz (Nivel 5) ---
+bot.on('voice', async (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, "🎤 Lupe está escuchando tu mensaje... dame un segundito, vé.");
+
+    try {
+        const fileId = msg.voice.file_id;
+        const fileUrl = await bot.getFileLink(fileId);
+        const tempVoice = path.join(__dirname, `voice_${Date.now()}.ogg`);
+        
+        const response = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
+        const writer = fs.createWriteStream(tempVoice);
+        response.data.pipe(writer);
+
+        writer.on('finish', async () => {
+            try {
+                // Transcripción con OpenAI Whisper
+                const transcription = await openai.audio.transcriptions.create({
+                    file: fs.createReadStream(tempVoice),
+                    model: "whisper-1",
+                    language: "es"
+                });
+
+                const textoOyente = transcription.text;
+                console.log(`🎙️ Oyente vía audio: ${textoOyente}`);
+
+                ultimoSaludo = {
+                    nombre: msg.from.first_name || "un oyente",
+                    texto: `envió un audio que dice: "${textoOyente}"`,
+                    fecha: new Date()
+                };
+
+                if(fs.existsSync(tempVoice)) fs.unlinkSync(tempVoice);
+                bot.sendMessage(chatId, `¡Oído cocina! 🎧 Lupe ya escuchó tu mensaje de voz. Lo comentará pronto al aire.`);
+            } catch (err) {
+                bot.sendMessage(chatId, "¡Uy! Me entró una interferencia y no pude entender bien tu audio.");
+            }
+        });
+    } catch (e) {
+        bot.sendMessage(chatId, "Hubo un problema con el satélite de audio.");
+    }
+});
+
+// --- Manejo de Texto y Pedidos ---
 bot.on('message', async (msg) => {
     if (!msg.text) return;
-
     if (msg.text.startsWith('/pedir ')) {
         const busqueda = msg.text.replace('/pedir ', '').trim();
-        if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime el nombre de la canción! 🎵");
-
+        if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime qué canción quieres, mirá! 🎵");
         bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}"...`);
         const track = await buscarMusicaJamendo(busqueda, true); 
-
         if (track) {
             const exito = await descargarYSubirAzura(track);
             if (exito) {
-                ultimoSaludo = { 
-                    nombre: msg.from.first_name || "un oyente", 
-                    texto: `pidió la canción "${track.info}"`, 
-                    fecha: new Date() 
-                };
-                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Salomé la presentará pronto.`);
-            } else {
-                bot.sendMessage(msg.chat.id, `❌ Error al procesar el archivo.`);
+                ultimoSaludo = { nombre: msg.from.first_name || "un oyente", texto: `pidió la canción "${track.info}"`, fecha: new Date() };
+                bot.sendMessage(msg.chat.id, `✅ ¡Subida! "${track.info}". Lupe la presenta en un momento.`);
             }
-        } else {
-            bot.sendMessage(msg.chat.id, `❌ No encontré esa canción.`);
         }
         return;
     }
-
-    if (msg.text === '/descubrir') {
-        bot.sendMessage(msg.chat.id, "🔎 Buscando un éxito rumbero...");
-        const track = await buscarMusicaJamendo('latin', false);
-        if (track) {
-            await descargarYSubirAzura(track);
-            cancionRecienDescubierta = track.info;
-            bot.sendMessage(msg.chat.id, `✅ ¡Nuevo estreno! "${track.info}".`);
-        }
-        return;
-    }
-
     if (!msg.text.startsWith('/')) {
-        ultimoSaludo = {
-            nombre: msg.from.first_name || "un oyente",
-            texto: msg.text,
-            fecha: new Date()
-        };
-        bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo saldrá al aire. 🎙️");
+        ultimoSaludo = { nombre: msg.from.first_name || "un oyente", texto: msg.text, fecha: new Date() };
+        bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo va para el aire. 🎙️");
     }
 });
 
@@ -121,8 +135,8 @@ async function descargarYSubirAzura(track) {
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
-                    form.append('file', fs.createReadStream(tempFile), { filename: "estreno_jamendo.mp3" });
-                    form.append('path', `Musica_Nueva/estreno_jamendo.mp3`);
+                    form.append('file', fs.createReadStream(tempFile), { filename: "estreno.mp3" });
+                    form.append('path', `Musica_Nueva/estreno.mp3`);
                     await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA } });
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
@@ -163,14 +177,13 @@ async function redactarIA(prompt) {
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
-                { role: "system", content: "Eres Lupe, locutora rumbera de La Fronterísima en Cali. Alegre, carismática y usas expresiones caleñas." },
+                { role: "system", content: "Eres Lupe, locutora rumbera de La Fronterísima en Cali. Alegre, carismática y usas expresiones caleñas. Si mencionan un mensaje de voz, reacciona con emoción como si lo hubieras oído." },
                 { role: "user", content: prompt }
             ],
             max_tokens: 150
         });
         return limpiarTexto(response.choices[0].message.content);
     } catch (e) {
-        console.error("Error OpenAI:", e.message);
         return "Sintonizas La Fronterísima, notas surcando fronteras.";
     }
 }
@@ -179,47 +192,33 @@ async function redactarIA(prompt) {
 
 async function generarVoz(texto, archivoDestino) {
     const params = {
-        // Mantenemos el SSML al mínimo para evitar errores de compatibilidad
         Text: `<speak>${texto}</speak>`,
         OutputFormat: "mp3",
-        VoiceId: "Lupe", // Lupe es la voz recomendada para tu radio
-        Engine: "neural", 
+        VoiceId: "Lupe",
+        Engine: "neural",
         TextType: "ssml"
     };
 
     try {
         const command = new SynthesizeSpeechCommand(params);
         const { AudioStream } = await polly.send(command);
-
-        // Convertimos el stream a Buffer (necesario en AWS SDK v3)
         const buffer = await new Promise((resolve, reject) => {
             const chunks = [];
             AudioStream.on("data", (chunk) => chunks.push(chunk));
             AudioStream.on("end", () => resolve(Buffer.concat(chunks)));
             AudioStream.on("error", reject);
         });
-
         fs.writeFileSync(archivoDestino, buffer);
-        console.log("✅ Locución de Lupe generada correctamente.");
     } catch (e) {
-        // Si el motor Neural da problemas, el sistema cambia automáticamente a Estándar
-        if (e.message.includes("Unsupported") || e.message.includes("Neural")) {
-            console.warn("⚠️ Motor Neural no compatible con esta solicitud. Reintentando con Estándar...");
-            params.Engine = "standard";
-            const retryCommand = new SynthesizeSpeechCommand(params);
-            const { AudioStream: retryStream } = await polly.send(retryCommand);
-            
-            const retryBuffer = await new Promise((resolve, reject) => {
-                const chunks = [];
-                retryStream.on("data", (chunk) => chunks.push(chunk));
-                retryStream.on("end", () => resolve(Buffer.concat(chunks)));
-                retryStream.on("error", reject);
-            });
-            fs.writeFileSync(archivoDestino, retryBuffer);
-        } else {
-            console.error("❌ Error crítico en Polly:", e.message);
-            throw e;
-        }
+        // Fallback a Standard si Neural falla
+        params.Engine = "standard";
+        const cmdRetry = new SynthesizeSpeechCommand(params);
+        const { AudioStream: streamRetry } = await polly.send(cmdRetry);
+        const bufRetry = await new Promise((res) => {
+            const c = []; streamRetry.on("data", (k) => c.push(k));
+            streamRetry.on("end", () => res(Buffer.concat(c)));
+        });
+        fs.writeFileSync(archivoDestino, bufRetry);
     }
 }
 
@@ -255,22 +254,22 @@ async function autoReporte() {
         
         let extras = "";
         if (ultimoSaludo.fecha && (new Date() - ultimoSaludo.fecha < 30 * 60 * 1000)) {
-            extras += ` SALUDO ESPECIAL: ${ultimoSaludo.nombre} dice: ${ultimoSaludo.texto}.`;
+            extras += ` SALUDO: ${ultimoSaludo.nombre} ${ultimoSaludo.texto}.`;
         }
 
-        const prompt = `Lupe de La Fronterísima Cali. Hora: ${hora}. Suena: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. Noticias: ${bbc}. ${extras} Guion rumbero muy corto (45 palabras).`;
+        const prompt = `Lupe de La Fronterísima Cali. Hora: ${hora}. Suena: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. Noticias: ${bbc}. ${extras} Guion de 45 palabras.`;
         const guion = await redactarIA(prompt);
         const pathVoz = `v_auto_${Date.now()}.mp3`;
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "dj_auto.mp3", true);
         ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 actualizado.");
+        console.log("✅ dj_auto.mp3 (Polly Neural/Std) actualizado.");
     } catch (e) { console.error("Error AutoReporte:", e.message); }
 }
 
 async function autoRedactorIA() {
     try {
-        const temas = ["un mensaje positivo", "historia de la salsa en Cali", "un dato rumbero"];
+        const temas = ["un mensaje positivo", "historia de la salsa", "curiosidad caleña"];
         const tema = temas[Math.floor(Math.random() * temas.length)];
         const prompt = `Lupe de La Fronterísima. Redacta 35 palabras sobre ${tema}. Muy alegre. Termina: Notas surcando fronteras.`;
         const guion = await redactarIA(prompt);
@@ -304,10 +303,10 @@ app.post('/login', (req, res) => {
 
 app.get("/health", (req, res) => res.sendStatus(200));
 
-// ======= 8. INICIO =======
+// ======= 8. INICIO DEL SERVIDOR =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Pro (OpenAI + Polly) en puerto ${PORT}`);
+    console.log(`🚀 La Fronterísima Nivel 5 activa en puerto ${PORT}`);
     setTimeout(autoReporte, 5000);
     setInterval(autoReporte, 15 * 60 * 1000);
     setTimeout(autoRedactorIA, 20000); 
