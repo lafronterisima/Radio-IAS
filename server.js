@@ -1,137 +1,197 @@
 require('dotenv').config();
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
 const axios = require("axios");
+const fs = require("fs");
 const FormData = require("form-data");
-const Groq = require("groq-sdk");
-const textToSpeech = require('@google-cloud/text-to-speech');
+const { exec } = require("child_process");
+const path = require("path");
+const TelegramBot = require('node-telegram-bot-api');
+const { pipeline } = require('stream/promises');
+const gTTS = require('gtts');
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
 
 // ======= CONFIG =======
+const safeTrim = (val) => val ? val.trim() : "";
+const sID = (process.env.STATION_ID || "24").replace(/\D/g, "");
+
 const KEYS = {
-    AZURA: process.env.AZURA_KEY?.trim(),
-    STATION_ID: process.env.STATION_ID || "24",
-    GROQ: process.env.GROQ_API_KEY?.trim(),
-    GOOGLE_CREDS: process.env.GOOGLE_CREDS 
+    GROQ: safeTrim(process.env.GROQ_API_KEY),
+    AZURA: safeTrim(process.env.AZURA_KEY),
+    STATION_ID: sID,
+    PASSWORD: safeTrim(process.env.APP_PASSWORD),
+    TELEGRAM_TOKEN: safeTrim(process.env.TELEGRAM_TOKEN),
+    JAMENDO_ID: safeTrim(process.env.JAMENDO_CLIENT_ID) || "c230e1f4"
 };
 
-const groq = new Groq({ apiKey: KEYS.GROQ });
+const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
+const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
-// ======= VOZ (GOOGLE CLOUD TTS) =======
-async function generarVozGoogle(texto, archivoDestino) {
-    try {
-        console.log("🎙️ Solicitando voz a Google Cloud...");
-        
-        // Parseamos las credenciales desde la variable de entorno
-        const credentials = JSON.parse(KEYS.GOOGLE_CREDS);
-        const client = new textToSpeech.TextToSpeechClient({ credentials });
+// ===== TELEGRAM =====
+const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
 
-        const request = {
-            input: { text: texto },
-            // Configuración estable: es-MX Neural2-A (Voz femenina de alta calidad)
-            voice: { 
-                languageCode: 'es-MX', 
-                name: 'es-MX-Neural2-A' 
-            },
-            audioConfig: { 
-                audioEncoding: 'MP3', 
-                pitch: 0, 
-                speakingRate: 1.05 
-            },
+let ultimoSaludo = { nombre: "", texto: "", fecha: null };
+let cancionRecienDescubierta = null;
+
+bot.on('message', async (msg) => {
+    if (!msg.text) return;
+
+    if (msg.text.startsWith('/pedir ')) {
+        const busqueda = msg.text.replace('/pedir ', '').trim();
+
+        const track = await buscarMusicaJamendo(busqueda, true);
+
+        if (track) {
+            const exito = await descargarYSubirAzura(track);
+            if (exito) {
+                ultimoSaludo = {
+                    nombre: msg.from.first_name,
+                    texto: `pidió ${track.info}`,
+                    fecha: new Date()
+                };
+                bot.sendMessage(msg.chat.id, "🎵 ¡Listo!");
+            }
+        }
+        return;
+    }
+
+    if (!msg.text.startsWith('/')) {
+        ultimoSaludo = {
+            nombre: msg.from.first_name,
+            texto: msg.text,
+            fecha: new Date()
         };
+    }
+});
 
-        const [response] = await client.synthesizeSpeech(request);
-        fs.writeFileSync(archivoDestino, response.audioContent, 'binary');
-        console.log("✅ Audio generado y guardado localmente");
+// ===== JAMENDO =====
+async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
+    const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${KEYS.JAMENDO_ID}&format=json&limit=1&audioformat=mp32&search=${encodeURIComponent(query)}`;
+
+    try {
+        const res = await axios.get(url);
+        if (res.data.results?.length > 0) {
+            const t = res.data.results[0];
+            return { url: t.audio, info: `${t.name} - ${t.artist_name}` };
+        }
+    } catch (e) {}
+    return null;
+}
+
+// ===== SUBIR A AZURA =====
+async function descargarYSubirAzura(track) {
+    const tempFile = "tmp.mp3";
+
+    try {
+        const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
+        await pipeline(response.data, fs.createWriteStream(tempFile));
+
+        const form = new FormData();
+        form.append('file', fs.createReadStream(tempFile), { filename: "pedido.mp3" });
+        form.append('path', "Musica_Nueva");
+
+        await axios.post(AZURA_API_UPLOAD, form, {
+            headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }
+        });
+
+        fs.unlinkSync(tempFile);
+        return true;
+
     } catch (e) {
-        console.error("❌ Error real en la API de Google:", e.message);
-        throw e;
+        console.log(e.message);
+        return false;
     }
 }
 
-// ======= IA (REDACCIÓN) =======
+// ===== IA TEXTO =====
 async function redactarIA(prompt) {
     try {
-        const completion = await groq.chat.completions.create({
-            messages: [
-                { 
-                    role: "system", 
-                    content: "Eres la voz oficial de la emisora La Fronterísima. Tono profesional, alegre, cálido y colombiano. Sé breve (máximo 30 palabras)." 
-                },
-                { role: "user", content: prompt }
-            ],
-            model: "llama-3.3-70b-versatile",
+        const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+            model: "llama-3.1-8b-instant",
+            messages: [{ role: "user", content: prompt }]
+        }, {
+            headers: { Authorization: `Bearer ${KEYS.GROQ}` }
         });
-        return completion.choices[0]?.message?.content || "Sintonizas La Fronterísima, la emisora que te mueve.";
-    } catch (e) {
-        console.error("❌ Error en Groq:", e.message);
-        return "Estás en sintonía de La Fronterísima, música y alegría.";
+
+        return res.data.choices[0].message.content;
+    } catch {
+        return "Estás escuchando La Fronterísima";
     }
 }
 
-// ======= AZURACAST (SUBIDA) =======
-async function subirAAzura(archivoLocal) {
+// ===== TTS (gTTS) =====
+async function generarVoz(texto, archivo) {
+    return new Promise((resolve, reject) => {
+        const tts = new gTTS(texto, 'es');
+        tts.save(archivo, (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
+// ===== PRODUCCIÓN AUDIO =====
+async function producirYSubir(archivoVoz, nombreFinal) {
+    const salida = "final.mp3";
+
+    return new Promise((resolve) => {
+        exec(`ffmpeg -y -i ${archivoVoz} -af "volume=1.5" ${salida}`, async () => {
+            const form = new FormData();
+            form.append('file', fs.createReadStream(salida), { filename: nombreFinal });
+
+            await axios.post(AZURA_API_UPLOAD, form, {
+                headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA }
+            });
+
+            fs.unlinkSync(archivoVoz);
+            fs.unlinkSync(salida);
+            resolve();
+        });
+    });
+}
+
+// ===== AUTOMÁTICO =====
+async function autoReporte() {
+    const hora = new Date().toLocaleTimeString("es-CO");
+
+    const texto = await redactarIA(`Di la hora ${hora} como locutora de radio`);
+
+    const voz = "voz.mp3";
+
+    await generarVoz(texto, voz);
+    await producirYSubir(voz, "dj_auto.mp3");
+
+    console.log("🎙️ Auto DJ listo");
+}
+
+app.post('/login', (req, res) => {
     try {
-        const form = new FormData();
-        form.append('file', fs.createReadStream(archivoLocal), { filename: 'locucion_ia.mp3' });
+        const password = req.body.password;
 
-        await axios.post(
-            `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}/files/upload`,
-            form,
-            {
-                headers: {
-                    ...form.getHeaders(),
-                    "X-API-Key": KEYS.AZURA
-                }
-            }
-        );
+        if (!password) {
+            return res.status(400).json({ success: false, error: "Falta password" });
+        }
 
-        console.log("✅ Locución subida exitosamente a AzuraCast");
-        
-        // Borramos el archivo temporal después de subirlo
-        if (fs.existsSync(archivoLocal)) {
-            fs.unlinkSync(archivoLocal);
+        if (password === KEYS.PASSWORD) {
+            return res.json({ success: true });
+        } else {
+            return res.status(401).json({ success: false });
         }
     } catch (e) {
-        console.error("❌ Error subida Azura:", e.message);
+        return res.status(500).json({ success: false });
     }
-}
+});
 
-// ======= CICLO DE RADIO =======
-async function ejecutarCiclo() {
-    console.log("⏰ Iniciando ciclo automático...");
-    
-    const hora = new Date().toLocaleTimeString("es-CO", {
-        timeZone: "America/Bogota",
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-    });
+// ===== API =====
+app.get("/health", (req, res) => res.send("OK"));
 
-    const texto = await redactarIA(`Saluda con energía y menciona que son las ${hora} en La Fronterísima.`);
-    const tempMP3 = path.join(__dirname, `locucion_${Date.now()}.mp3`);
-
-    try {
-        await generarVozGoogle(texto, tempMP3);
-        await subirAAzura(tempMP3);
-    } catch (e) {
-        console.error("🚨 Fallo crítico en el ciclo:", e.message);
-    }
-}
-
-// ======= SERVER =======
-app.get('/health', (req, res) => res.send("Servidor de Radio Activo"));
-
+// ===== SERVER =====
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Servidor de Locución IA en puerto ${PORT}`);
-    
-    // Ejecución inicial a los 5 segundos
-    setTimeout(ejecutarCiclo, 5000);
-    
-    // Repetir cada 15 minutos
-    setInterval(ejecutarCiclo, 15 * 60 * 1000);
+
+app.listen(PORT, () => {
+    console.log("🚀 Radio IA corriendo");
+
+    setInterval(autoReporte, 15 * 60 * 1000);
 });
