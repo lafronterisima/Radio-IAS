@@ -182,8 +182,12 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 
 async function autoReporte() {
     try {
-        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.07&current_weather=true"); // Coordenadas Colombia general
-        const news = await obtenerNoticiasEuronews();
+        const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.07&current_weather=true");
+        
+        // --- SECCIÓN DE NOTICIAS (SILENCIADA CON SLASH) ---
+        // const news = await obtenerNoticiasEuronews(); 
+        const news = null; // Dejamos esto en null para que el código no falle
+        
         const np = await obtenerAhoraSuena();
         const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
         
@@ -192,14 +196,21 @@ async function autoReporte() {
             extras += ` SALUDO: ${ultimoSaludo.nombre} ${ultimoSaludo.texto}.`;
         }
 
-        const prompt = `Reporte rumbero. Hora: ${hora}. Suena: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. Euronews: ${news}. ${extras} Redacta un guion de 50 palabras muy alegre.`;
+        // Ajustamos el prompt dinámicamente: Si hay noticias las dice, si no, se enfoca en el sabor rumbero
+        const infoNoticias = news ? `Noticias de Euronews: ${news}.` : "Hoy no hay noticias, solo buena vibra y música.";
+        
+        const prompt = `Reporte rumbero. Hora: ${hora}. Suena: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. ${infoNoticias} ${extras} Redacta un guion de 50 palabras muy alegre, sin presentarte.`;
+
         const guion = await redactarIA(prompt);
         const pathVoz = `v_auto_${Date.now()}.mp3`;
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "dj_auto.mp3", true);
+        
         ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 (Euronews + Lupe Colombia) actualizado.");
-    } catch (e) { console.error("Error:", e.message); }
+        console.log("✅ dj_auto.mp3 actualizado (Noticias silenciadas).");
+    } catch (e) { 
+        console.error("Error en AutoReporte:", e.message); 
+    }
 }
 
 async function autoRedactorIA() {
