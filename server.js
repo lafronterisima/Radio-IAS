@@ -68,7 +68,7 @@ bot.on('voice', async (msg) => {
                     fecha: new Date()
                 };
                 if(fs.existsSync(tempVoice)) fs.unlinkSync(tempVoice);
-                bot.sendMessage(chatId, `¡Entendido! Lupe ya procesó tu audio y lo comentará pronto.`);
+                bot.sendMessage(chatId, `¡Entendido! ya se procesó tu audio y lo comentará pronto.`);
             } catch (err) { bot.sendMessage(chatId, "No pude procesar el audio."); }
         });
     } catch (e) { bot.sendMessage(chatId, "Error de conexión con Telegram."); }
@@ -117,7 +117,7 @@ async function redactarIA(prompt) {
             messages: [
                 { 
                     role: "system", 
-                    content: "Eres Lupe, locutora de La Fronterísima. Tu estilo es rumbero y colombiano (nacional). Alegre y carismática. EVITA decir tu nombre o el nombre de la radio en cada frase, ve directo al grano. Si hay un audio del oyente, reacciona con emoción." 
+                    content: "Eres locutora de La Fronterísima. Tu estilo es rumbero y colombiano (nacional). Alegre y carismática. EVITA decir tu nombre o el nombre de la radio en cada frase, ve directo al grano. Si hay un audio del oyente, reacciona con emoción." 
                 },
                 { role: "user", content: prompt }
             ],
