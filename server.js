@@ -44,6 +44,7 @@ let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 
 bot.on('polling_error', () => {}); 
 
+// Manejo de Notas de Voz (Transcripción Whisper)
 bot.on('voice', async (msg) => {
     const chatId = msg.chat.id;
     bot.sendMessage(chatId, "🎤 Lupe está escuchando tu mensaje de voz... dame un momento.");
@@ -68,17 +69,48 @@ bot.on('voice', async (msg) => {
                     fecha: new Date()
                 };
                 if(fs.existsSync(tempVoice)) fs.unlinkSync(tempVoice);
-                bot.sendMessage(chatId, `¡Entendido! ya se procesó tu audio y lo comentará pronto.`);
+                bot.sendMessage(chatId, `¡Entendido! Lupe ya procesó tu audio y lo comentará pronto.`);
             } catch (err) { bot.sendMessage(chatId, "No pude procesar el audio."); }
         });
     } catch (e) { bot.sendMessage(chatId, "Error de conexión con Telegram."); }
 });
 
+// Manejo de Pedidos y Saludos
 bot.on('message', async (msg) => {
-    if (!msg.text || msg.text.startsWith('/')) return;
+    if (!msg.text) return;
+
+    if (msg.text.startsWith('/pedir ')) {
+        const busqueda = msg.text.replace('/pedir ', '').trim();
+        if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime qué canción buscas, ve!");
+        
+        bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}" en el archivo...`);
+        const track = await buscarMusicaJamendo(busqueda, true);
+        
+        if (track) {
+            const exito = await descargarYSubirAzura(track);
+            if (exito) {
+                ultimoSaludo = { 
+                    nombre: msg.from.first_name || "un oyente", 
+                    texto: `pidió la canción "${track.info}"`, 
+                    fecha: new Date() 
+                };
+                bot.sendMessage(msg.chat.id, `✅ ¡Listo! "${track.info}" ya está programada.`);
+            } else {
+                bot.sendMessage(msg.chat.id, "❌ Hubo un fallo al subir la canción.");
+            }
+        } else {
+            bot.sendMessage(msg.chat.id, "No encontré esa canción, intenta con otra.");
+        }
+        return;
+    }
+
+    if (msg.text.startsWith('/')) return;
+    
     ultimoSaludo = { nombre: msg.from.first_name || "un oyente", texto: msg.text, fecha: new Date() };
     bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo va para el aire.");
 });
+
+// ======= 3. FUNCIONES DE APOYO =======
 
 async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     const generos = ['salsa', 'reggaeton', 'bachata', 'vallenato'];
@@ -95,34 +127,39 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
+    // Limpieza previa para asegurar reemplazo local
+    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+
     try {
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
         const writer = fs.createWriteStream(tempFile);
+        
         return new Promise((resolve) => {
             response.data.pipe(writer);
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
+                    // Al usar el mismo nombre "estreno.mp3" AzuraCast reemplaza el anterior
                     form.append('file', fs.createReadStream(tempFile), { filename: "estreno.mp3" });
                     form.append('path', `Musica_Nueva/estreno.mp3`);
-                    await axios.post(AZURA_API_UPLOAD, form, { headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA } });
+                    await axios.post(AZURA_API_UPLOAD, form, { 
+                        headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
+                        timeout: 60000 
+                    });
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
                 } catch (err) { resolve(false); }
             });
+            writer.on('error', () => resolve(false));
         });
     } catch (e) { return false; }
 }
 
-// ======= 3. FUNCIONES DE APOYO =======
-
 async function obtenerNoticiasEuronews() {
     try {
-        // Fuente: Euronews en Español
         const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=noticias", { timeout: 5000 });
         const matches = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
         if (matches && matches.length > 1) {
-            // El primer match suele ser el título del RSS, tomamos el segundo
             return matches[1].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').trim();
         }
         return "El mundo sigue en movimiento.";
@@ -151,7 +188,7 @@ async function redactarIA(prompt) {
             messages: [
                 { 
                     role: "system", 
-                    content: "Eres locutora de La Fronterísima. Tu estilo es rumbero y colombiano (nacional). Alegre y carismática. EVITA decir tu nombre o el nombre de la radio en cada frase, ve directo al grano. Si hay un audio del oyente, reacciona con emoción." 
+                    content: "Eres locutora de radio rumbera colombiana. Alegre, carismática y nacional. EVITA decir tu nombre o el de la radio. Si hay un saludo, reacciona con mucha emoción." 
                 },
                 { role: "user", content: prompt }
             ],
@@ -218,9 +255,9 @@ async function autoReporte() {
     try {
         const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.07&current_weather=true");
         
-        // --- SECCIÓN DE NOTICIAS (SILENCIADA CON SLASH) ---
+        // --- SECCIÓN DE NOTICIAS (PARA ACTIVAR: QUITA EL SLASH Y BORRA news=null) ---
         // const news = await obtenerNoticiasEuronews(); 
-        const news = null; // Dejamos esto en null para que el código no falle
+        const news = null; 
         
         const np = await obtenerAhoraSuena();
         const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
@@ -230,9 +267,7 @@ async function autoReporte() {
             extras += ` SALUDO: ${ultimoSaludo.nombre} ${ultimoSaludo.texto}.`;
         }
 
-        // Ajustamos el prompt dinámicamente: Si hay noticias las dice, si no, se enfoca en el sabor rumbero
-        const infoNoticias = news ? `Noticias de Euronews: ${news}.` : "Hoy no hay noticias, solo buena vibra y música.";
-        
+        const infoNoticias = news ? `Noticias de Euronews: ${news}.` : "Hoy el mundo rumbero está tranquilo, ¡solo música!";
         const prompt = `Reporte rumbero. Hora: ${hora}. Suena: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. ${infoNoticias} ${extras} Redacta un guion de 50 palabras muy alegre, sin presentarte.`;
 
         const guion = await redactarIA(prompt);
@@ -241,17 +276,15 @@ async function autoReporte() {
         await producirYSubir(pathVoz, "dj_auto.mp3", true);
         
         ultimoSaludo.fecha = null; 
-        console.log("✅ dj_auto.mp3 actualizado (Noticias silenciadas).");
-    } catch (e) { 
-        console.error("Error en AutoReporte:", e.message); 
-    }
+        console.log("✅ dj_auto.mp3 actualizado.");
+    } catch (e) { console.error("Error AutoReporte:", e.message); }
 }
 
 async function autoRedactorIA() {
     try {
         const temas = ["un mensaje positivo", "historia rumbera", "dato musical"];
         const tema = temas[Math.floor(Math.random() * temas.length)];
-        const prompt = `Redacta 40 palabras sobre ${tema}. Estilo rumbero colombiano. Termina: Notas surcando fronteras.`;
+        const prompt = `Redacta 40 palabras sobre ${tema}. Estilo rumbero colombiano nacional. No digas tu nombre. Termina: Notas surcando fronteras.`;
         const guion = await redactarIA(prompt);
         const pathVoz = `v_red_${Date.now()}.mp3`;
         await generarVoz(guion, pathVoz);
@@ -280,7 +313,7 @@ app.get("/health", (req, res) => res.sendStatus(200));
 // ======= 7. INICIO =======
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 La Fronterísima Nivel 5 (Colombia/Euronews) puerto ${PORT}`);
+    console.log(`🚀 La Fronterísima Nivel 5 activada en puerto ${PORT}`);
     setTimeout(autoReporte, 5000);
     setInterval(autoReporte, 15 * 60 * 1000);
     setTimeout(autoRedactorIA, 20000); 
