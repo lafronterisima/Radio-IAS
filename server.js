@@ -125,10 +125,9 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     } catch (e) { return null; }
 }
 
-
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    const fileName = `pedido_${Date.now()}.mp3`; // Nombre único para evitar conflictos
+    const fileName = "estreno.mp3"; // Nombre fijo para reemplazo constante
     const filePath = `Musica_Nueva/${fileName}`;
 
     try {
@@ -143,14 +142,14 @@ async function descargarYSubirAzura(track) {
                     form.append('file', fs.createReadStream(tempFile), { filename: fileName });
                     form.append('path', filePath);
 
-                    // 1. Subir el archivo
+                    // 1. SUBIDA (Reemplaza el archivo físico en el servidor)
                     await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
                         timeout: 60000 
                     });
 
-                    // 2. PEDIR LA CANCIÓN INMEDIATAMENTE
-                    // Primero obtenemos el ID del archivo o usamos el path para el request
+                    // 2. PETICIÓN (Fuerza a AzuraCast a ponerlo en cola de prioridad)
+                    // Usamos el endpoint de 'request' para que el AutoDJ lo mueva al principio
                     await axios.post(`${AZURA_BASE}/request/${encodeURIComponent(filePath)}`, {}, {
                         headers: { "X-API-Key": KEYS.AZURA }
                     });
@@ -158,7 +157,7 @@ async function descargarYSubirAzura(track) {
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
                 } catch (err) { 
-                    console.error("Error en Request:", err.response?.data || err.message);
+                    console.error("Error en AzuraCast:", err.response?.data || err.message);
                     resolve(false); 
                 }
             });
