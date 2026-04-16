@@ -318,6 +318,21 @@ app.post("/procesar-locucion", async (req, res) => {
     } catch (e) { res.status(500).send("Error"); }
 });
 
+// RUTA NUEVA: Para el botón "✨ Redactar" del Frontend
+app.post("/redactar-guion", async (req, res) => {
+    try {
+        const { idea } = req.body;
+        if (!idea) return res.status(400).json({ error: "No enviaste una idea" });
+        
+        // Usamos tu función redactarIA que ya tienes definida
+        const guion = await redactarIA(`Genera un guion de locución rumbero sobre: ${idea}. Máximo 40 palabras.`);
+        res.json({ guion: guion });
+    } catch (e) {
+        console.error("Error al redactar:", e);
+        res.status(500).json({ error: "Error de IA" });
+    }
+});
+
 app.get("/health", (req, res) => res.sendStatus(200));
 
 // ======= 7. INICIO =======
