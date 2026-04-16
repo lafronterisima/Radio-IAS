@@ -241,10 +241,11 @@ async function generarVoz(texto, archivoDestino) {
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
     const fondo = "fondo.mp3";
+    // Busca esta línea en la función producirYSubir y reemplázala:
     let cmd = (conFondo && fs.existsSync(fondo))
-        ? `ffmpeg -y -i ${fondo} -i ${archivoVoz} -filter_complex "[0:a]volume=0.10,atrim=duration=40[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
-        : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
-
+    ? `ffmpeg -y -i ${fondo} -i ${archivoVoz} -filter_complex "[0:a]volume=0.10[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
+    : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+    
     return new Promise((resolve) => {
         exec(cmd, async () => {
             try {
