@@ -168,6 +168,7 @@
     </div>
 
     <script>
+        // Verificación de acceso mediante el backend
         async function checkAccess() {
             const password = document.getElementById('access-key').value;
             const errorMsg = document.getElementById('error-msg');
@@ -193,10 +194,12 @@
             }
         }
 
+        // Permitir entrar con la tecla Enter
         document.getElementById('access-key').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') checkAccess();
         });
 
+        // Reloj en tiempo real
         function updateReloj() {
             const ahora = new Date();
             document.getElementById('reloj-digital').innerText = ahora.toLocaleTimeString();
@@ -204,6 +207,7 @@
         setInterval(updateReloj, 1000);
         updateReloj();
 
+        // Mostrar estados de carga/éxito/error
         function showStatus(msg, type) {
             const statusBox = document.getElementById('status-box');
             statusBox.innerText = msg;
@@ -211,6 +215,7 @@
             statusBox.style.display = 'block';
         }
 
+        // Llamada a la IA para redactar el guion
         async function redactarIA() {
             const idea = document.getElementById('ideaInput').value;
             if(!idea) return alert("Escribe una idea primero.");
@@ -221,10 +226,11 @@
             showStatus("🤖 Salomé está pensando...", "loading");
             
             try {
+                // El endpoint debe coincidir con tu backend
                 const res = await fetch('/redactar-guion', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ idea: idea }) // Se asegura de enviar 'idea'
+                    body: JSON.stringify({ idea: idea })
                 });
                 const data = await res.json();
                 
@@ -242,6 +248,7 @@
             }
         }
 
+        // Procesar voz y subir a AzuraCast
         async function procesarProduccion() {
             const texto = document.getElementById('guionText').value;
             const conFondo = document.getElementById('conFondo').checked;
