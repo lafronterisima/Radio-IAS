@@ -125,10 +125,11 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
     } catch (e) { return null; }
 }
 
+
 async function descargarYSubirAzura(track) {
     const tempFile = path.join(__dirname, 'tmp_track.mp3');
-    // Limpieza previa para asegurar reemplazo local
-    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+    const fileName = `pedido_${Date.now()}.mp3`; // Nombre único para evitar conflictos
+    const filePath = `Musica_Nueva/${fileName}`;
 
     try {
         const response = await axios({ url: track.url, method: 'GET', responseType: 'stream' });
@@ -139,18 +140,28 @@ async function descargarYSubirAzura(track) {
             writer.on('finish', async () => {
                 try {
                     const form = new FormData();
-                    // Al usar el mismo nombre "estreno.mp3" AzuraCast reemplaza el anterior
-                    form.append('file', fs.createReadStream(tempFile), { filename: "estreno.mp3" });
-                    form.append('path', `Musica_Nueva/estreno.mp3`);
+                    form.append('file', fs.createReadStream(tempFile), { filename: fileName });
+                    form.append('path', filePath);
+
+                    // 1. Subir el archivo
                     await axios.post(AZURA_API_UPLOAD, form, { 
                         headers: { ...form.getHeaders(), "X-API-Key": KEYS.AZURA },
                         timeout: 60000 
                     });
+
+                    // 2. PEDIR LA CANCIÓN INMEDIATAMENTE
+                    // Primero obtenemos el ID del archivo o usamos el path para el request
+                    await axios.post(`${AZURA_BASE}/request/${encodeURIComponent(filePath)}`, {}, {
+                        headers: { "X-API-Key": KEYS.AZURA }
+                    });
+
                     if(fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
                     resolve(true);
-                } catch (err) { resolve(false); }
+                } catch (err) { 
+                    console.error("Error en Request:", err.response?.data || err.message);
+                    resolve(false); 
+                }
             });
-            writer.on('error', () => resolve(false));
         });
     } catch (e) { return false; }
 }
