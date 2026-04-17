@@ -7,7 +7,7 @@ const { exec } = require("child_process");
 const path = require("path");
 const TelegramBot = require('node-telegram-bot-api');
 const { OpenAI } = require("openai");
-const { MsEdgeTTS } = require("edge-tts"); // Nueva librería para Salomé
+const { MsEdgeTTS } = require("ms-edge-tts");
 
 const app = express();
 app.use(express.json());
