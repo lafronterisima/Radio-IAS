@@ -7,7 +7,7 @@ const { exec } = require("child_process");
 const path = require("path");
 const TelegramBot = require('node-telegram-bot-api');
 const { OpenAI } = require("openai");
-const { MsEdgeTTS } = require("ms-edge-tts"); 
+const { MsEdgeTTS } = require("@ms-edge-tts/node"); // Nombre corregido para NPM
 
 const app = express();
 app.use(express.json());
@@ -30,7 +30,7 @@ const AZURA_BASE = `https://az.azurafree.eu/api/station/${KEYS.STATION_ID}`;
 const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
 const openai = new OpenAI({ apiKey: KEYS.OPENAI });
-const tts = new MsEdgeTTS(); // Inicializamos Edge TTS
+const tts = new MsEdgeTTS(); // Inicializamos Edge TTS para Salomé
 
 // ======= 2. TELEGRAM (AUDIO, TEXTO Y PEDIDOS) =======
 
@@ -159,14 +159,6 @@ async function descargarYSubirAzura(track) {
     } catch (e) { return false; }
 }
 
-async function obtenerNoticiasEuronews() {
-    try {
-        const res = await axios.get("https://es.euronews.com/rss?level=vertical&name=noticias", { timeout: 5000 });
-        const matches = res.data.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>|<title>([^<]+)<\/title>/g);
-        return (matches && matches.length > 1) ? matches[1].replace(/<title>|<\/title>|<!\[CDATA\[|\]\]>/g, '').trim() : "El mundo rumbero sigue en movimiento.";
-    } catch (e) { return "Sintonía total con la actualidad."; }
-}
-
 async function obtenerAhoraSuena() {
     try {
         const res = await axios.get(`${AZURA_BASE}/nowplaying`, { timeout: 4000 });
@@ -196,25 +188,23 @@ async function redactarIA(prompt) {
     } catch (e) { return "Notas surcando fronteras, quédate con nosotros."; }
 }
 
-// NUEVA FUNCIÓN GENERAR VOZ CON SALOMÉ (GRATIS)
 async function generarVoz(texto, archivoDestino) {
     try {
+        // Configuramos la voz de Salomé
         await tts.setMetadata("es-CO-SalomeNeural", "audio-24khz-48kbitrate-mono-mp3");
         await tts.toFile(archivoDestino, texto);
         console.log("🎙️ Voz de Salomé generada con éxito.");
     } catch (e) {
         console.error("Error Edge TTS:", e);
-        // Fallback simple si falla (puedes añadir otro aquí)
     }
 }
 
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     const tempSalida = `prod_${Date.now()}.mp3`;
     const fondo = "fondo.mp3";
-    // Mejoramos el audio con compand para que la voz resalte sobre el fondo
     let cmd = (conFondo && fs.existsSync(fondo))
     ? `ffmpeg -y -i ${archivoVoz} -i ${fondo} -filter_complex "[0:a]volume=1.8,compand=attacks=0:points=-30/-90|-20/-20|0/0[v];[1:a]volume=0.15[bg];[v][bg]amix=inputs=2:duration=first:dropout_transition=2" -c:a libmp3lame -b:a 128k ${tempSalida}`
-    : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6,highpass=f=200,lowpass=f=3000" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+    : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
     
     return new Promise((resolve) => {
         exec(cmd, async () => {
@@ -235,7 +225,6 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 async function autoReporte() {
     try {
         const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=4.57&longitude=-74.07&current_weather=true");
-        const news = null; 
         const np = await obtenerAhoraSuena();
         const hora = new Date().toLocaleTimeString("es-CO", { timeZone: "America/Bogota", hour: '2-digit', minute: '2-digit', hour12: true });
         
@@ -244,7 +233,7 @@ async function autoReporte() {
             extras += ` SALUDO: ${ultimoSaludo.nombre} ${ultimoSaludo.texto}.`;
         }
 
-        const prompt = `Reporte rumbero. Hora: ${hora}. Suena: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. Redacta un guion de 50 palabras alegre.`;
+        const prompt = `Reporte rumbero. Hora: ${hora}. Suena: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. ${extras} Redacta un guion de 50 palabras alegre.`;
         const guion = await redactarIA(prompt);
         const pathVoz = `v_auto_${Date.now()}.mp3`;
         await generarVoz(guion, pathVoz);
