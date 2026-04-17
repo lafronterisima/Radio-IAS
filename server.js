@@ -38,8 +38,8 @@ const polly = new PollyClient({
     credentials: { accessKeyId: KEYS.AWS_ID, secretAccessKey: KEYS.AWS_SECRET }
 });
 
+
 // ======= 2. TELEGRAM (AUDIO, TEXTO Y PEDIDOS) =======
-// ======= 2. TELEGRAM (AUDIO, TEXTO Y PEDIDOS) - CORREGIDO =======
 
 // Inicialización segura: Si no hay token, el bot no intenta arrancar (evita el error EFATAL)
 const bot = KEYS.TELEGRAM_TOKEN 
@@ -74,35 +74,56 @@ if (bot) {
             const writer = fs.createWriteStream(tempVoice);
             response.data.pipe(writer);
 
-            writer.on('finish', async () => {
-                try {
-                    const transcription = await openai.audio.transcriptions.create({
-                        file: fs.createReadStream(tempVoice),
-                        model: "whisper-1",
-                        language: "es"
-                    });
+           writer.on('finish', async () => {
+    try {
+        const transcription = await openai.audio.transcriptions.create({
+            file: fs.createReadStream(tempVoice),
+            model: "whisper-1",
+            language: "es"
+        });
 
-                    ultimoSaludo = {
-                        nombre: msg.from.first_name || "un oyente",
-                        texto: `envió un audio: "${transcription.text}"`,
-                        fecha: new Date()
-                    };
+        const textoEscuchado = transcription.text.toLowerCase();
+        ultimoSaludo = {
+            nombre: msg.from.first_name || "un oyente",
+            texto: `envió un audio: "${transcription.text}"`,
+            fecha: new Date()
+        };
 
-                    bot.sendMessage(chatId, `¡Entendido! Lupe ya procesó tu mensaje.`);
-                } catch (err) {
-                    console.error("Error Whisper:", err);
-                    bot.sendMessage(chatId, "No pude procesar el audio.");
-                } finally {
-                    // Borrado preventivo del archivo temporal
-                    if (fs.existsSync(tempVoice)) fs.unlinkSync(tempVoice);
+        // --- LÓGICA DE DETECCIÓN DE PEDIDO ---
+        if (textoEscuchado.includes("ponme") || textoEscuchado.includes("pon") || textoEscuchado.includes("quiero escuchar")) {
+            const busqueda = textoEscuchado.replace(/ponme|pon|quiero escuchar|la canción|por favor/g, "").trim();
+            bot.sendMessage(chatId, `🎧 Te escuché clarito, quieres: "${busqueda}". ¡Buscándola!`);
+            
+            const track = await buscarMusicaJamendo(busqueda, true);
+            if (track) {
+                const exito = await descargarYSubirAzura(track);
+                if (exito) {
+                    bot.sendMessage(chatId, `✅ ¡Logrado! Ya programé "${track.info}" por ti.`);
                 }
-            });
-        } catch (e) {
-            console.error("Error descarga Telegram:", e);
-            if (fs.existsSync(tempVoice)) fs.unlinkSync(tempVoice);
-            bot.sendMessage(chatId, "Error de conexión con Telegram.");
+            } else {
+                bot.sendMessage(chatId, "No encontré esa canción, pero procesé tu audio.");
+            }
+        } else {
+            bot.sendMessage(chatId, `¡Entendido! Lupe ya procesó tu mensaje.`);
         }
-    });
+
+    } catch (err) {
+        console.error("Error Whisper:", err);
+        bot.sendMessage(chatId, "No pude procesar el audio.");
+    } finally {
+        // Borrado con validación extra
+        setTimeout(() => {
+            if (fs.existsSync(tempVoice)) {
+                try {
+                    fs.unlinkSync(tempVoice);
+                    console.log(`✅ Archivo temporal eliminado: ${tempVoice}`);
+                } catch (e) {
+                    console.error("No se pudo borrar el temporal aún:", e.message);
+                }
+            }
+        }, 1000); // Un pequeño retraso de 1s asegura que el stream de lectura de OpenAI ya se cerró
+    }
+});
 
     // --- Manejo de Pedidos y Saludos de Texto ---
     bot.on('message', async (msg) => {
