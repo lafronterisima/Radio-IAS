@@ -7,7 +7,7 @@ const { exec } = require("child_process");
 const path = require("path");
 const TelegramBot = require('node-telegram-bot-api');
 const { OpenAI } = require("openai");
-const { EdgeTTS } = require("edge-tts-node"); // Cambiado a la versión estable
+const { EdgeTTS } = require("@juntao/edge-tts");
 
 const app = express();
 app.use(express.json());
