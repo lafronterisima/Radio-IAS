@@ -1,7 +1,7 @@
 {
   "name": "radio-ia",
-  "version": "2.0.0",
-  "description": "Locutor Virtual con IA para La Fronterísima Radio",
+  "version": "5.0.0",
+  "description": "Locutor Virtual Pro con Salomé para La Fronterísima",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -11,26 +11,23 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "@aws-sdk/client-polly": "^3.1030.0",
-    "@google-cloud/text-to-speech": "^6.4.0",
-    "axios": "^1.15.0",
-    "dotenv": "^16.6.1",
-    "express": "^4.22.1",
-    "form-data": "^4.0.5",
-    "groq-sdk": "^0.3.3",
-    "microsoft-cognitiveservices-speech-sdk": "^1.37.0",
-    "node-telegram-bot-api": "^0.64.0",
-    "openai": "^6.34.0",
-    "rss-parser": "^3.13.0"
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.5",
+    "edge-tts": "^1.2.3",
+    "express": "^4.19.2",
+    "form-data": "^4.0.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "openai": "^4.52.0"
   },
   "keywords": [
     "radio",
     "ia",
     "tts",
     "azuracast",
-    "azure-speech",
-    "automation"
+    "edge-tts",
+    "automation",
+    "colombia"
   ],
-  "author": "Radio IA Developer",
+  "author": "Oskar - La Fronterísima",
   "license": "MIT"
 }
