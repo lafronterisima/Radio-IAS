@@ -39,76 +39,120 @@ const polly = new PollyClient({
 });
 
 // ======= 2. TELEGRAM (AUDIO, TEXTO Y PEDIDOS) =======
-const bot = new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true });
+// ======= 2. TELEGRAM (AUDIO, TEXTO Y PEDIDOS) - CORREGIDO =======
+
+// Inicialización segura: Si no hay token, el bot no intenta arrancar (evita el error EFATAL)
+const bot = KEYS.TELEGRAM_TOKEN 
+    ? new TelegramBot(KEYS.TELEGRAM_TOKEN, { polling: true }) 
+    : null;
+
 let ultimoSaludo = { nombre: "", texto: "", fecha: null };
 
-bot.on('polling_error', () => {}); 
+if (bot) {
+    console.log("✅ Bot de Telegram: Conectado y escuchando a los oyentes.");
 
-// Manejo de Notas de Voz (Transcripción Whisper)
-bot.on('voice', async (msg) => {
-    const chatId = msg.chat.id;
-    bot.sendMessage(chatId, "🎤 Lupe está escuchando tu mensaje de voz... dame un momento.");
-    try {
-        const fileId = msg.voice.file_id;
-        const fileUrl = await bot.getFileLink(fileId);
-        const tempVoice = path.join(__dirname, `voice_${Date.now()}.ogg`);
-        const response = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
-        const writer = fs.createWriteStream(tempVoice);
-        response.data.pipe(writer);
-
-        writer.on('finish', async () => {
-            try {
-                const transcription = await openai.audio.transcriptions.create({
-                    file: fs.createReadStream(tempVoice),
-                    model: "whisper-1",
-                    language: "es"
-                });
-                ultimoSaludo = {
-                    nombre: msg.from.first_name || "un oyente",
-                    texto: `envió un audio que dice: "${transcription.text}"`,
-                    fecha: new Date()
-                };
-                if(fs.existsSync(tempVoice)) fs.unlinkSync(tempVoice);
-                bot.sendMessage(chatId, `¡Entendido! Lupe ya procesó tu audio y lo comentará pronto.`);
-            } catch (err) { bot.sendMessage(chatId, "No pude procesar el audio."); }
-        });
-    } catch (e) { bot.sendMessage(chatId, "Error de conexión con Telegram."); }
-});
-
-// Manejo de Pedidos y Saludos
-bot.on('message', async (msg) => {
-    if (!msg.text) return;
-
-    if (msg.text.startsWith('/pedir ')) {
-        const busqueda = msg.text.replace('/pedir ', '').trim();
-        if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime qué canción buscas, ve!");
-        
-        bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}" en el archivo...`);
-        const track = await buscarMusicaJamendo(busqueda, true);
-        
-        if (track) {
-            const exito = await descargarYSubirAzura(track);
-            if (exito) {
-                ultimoSaludo = { 
-                    nombre: msg.from.first_name || "un oyente", 
-                    texto: `pidió la canción "${track.info}"`, 
-                    fecha: new Date() 
-                };
-                bot.sendMessage(msg.chat.id, `✅ ¡Listo! "${track.info}" ya está programada.`);
-            } else {
-                bot.sendMessage(msg.chat.id, "❌ Hubo un fallo al subir la canción.");
-            }
-        } else {
-            bot.sendMessage(msg.chat.id, "No encontré esa canción, intenta con otra.");
+    // Manejo de errores de conexión para que el servidor no se caiga
+    bot.on('polling_error', (err) => {
+        if (err.code === 'EFATAL') {
+            console.error("❌ Error Crítico de Telegram: Revisa que el TOKEN sea correcto.");
         }
-        return;
-    }
+    });
 
-    if (msg.text.startsWith('/')) return;
-    
-    ultimoSaludo = { nombre: msg.from.first_name || "un oyente", texto: msg.text, fecha: new Date() };
-    bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo va para el aire.");
-});
+    // --- Manejo de Notas de Voz (Transcripción Whisper) ---
+    bot.on('voice', async (msg) => {
+        const chatId = msg.chat.id;
+        bot.sendMessage(chatId, "🎤 Lupe está escuchando tu audio... dame un momento.");
+        
+        // Usamos prefijo v_ para coincidir con tu .gitignore
+        const tempVoice = path.join(__dirname, `v_${Date.now()}.ogg`);
+
+        try {
+            const fileId = msg.voice.file_id;
+            const fileUrl = await bot.getFileLink(fileId);
+            
+            const response = await axios({ url: fileUrl, method: 'GET', responseType: 'stream' });
+            const writer = fs.createWriteStream(tempVoice);
+            response.data.pipe(writer);
+
+            writer.on('finish', async () => {
+                try {
+                    const transcription = await openai.audio.transcriptions.create({
+                        file: fs.createReadStream(tempVoice),
+                        model: "whisper-1",
+                        language: "es"
+                    });
+
+                    ultimoSaludo = {
+                        nombre: msg.from.first_name || "un oyente",
+                        texto: `envió un audio: "${transcription.text}"`,
+                        fecha: new Date()
+                    };
+
+                    bot.sendMessage(chatId, `¡Entendido! Lupe ya procesó tu mensaje.`);
+                } catch (err) {
+                    console.error("Error Whisper:", err);
+                    bot.sendMessage(chatId, "No pude procesar el audio.");
+                } finally {
+                    // Borrado preventivo del archivo temporal
+                    if (fs.existsSync(tempVoice)) fs.unlinkSync(tempVoice);
+                }
+            });
+        } catch (e) {
+            console.error("Error descarga Telegram:", e);
+            if (fs.existsSync(tempVoice)) fs.unlinkSync(tempVoice);
+            bot.sendMessage(chatId, "Error de conexión con Telegram.");
+        }
+    });
+
+    // --- Manejo de Pedidos y Saludos de Texto ---
+    bot.on('message', async (msg) => {
+        if (!msg.text) return;
+
+        // Comandos: /pedir
+        if (msg.text.startsWith('/pedir ')) {
+            const busqueda = msg.text.replace('/pedir ', '').trim();
+            if (busqueda.length < 3) return bot.sendMessage(msg.chat.id, "¡Dime qué canción buscas, ve!");
+
+            bot.sendMessage(msg.chat.id, `🔎 Buscando "${busqueda}"...`);
+            
+            try {
+                const track = await buscarMusicaJamendo(busqueda, true);
+                if (track) {
+                    const exito = await descargarYSubirAzura(track);
+                    if (exito) {
+                        ultimoSaludo = { 
+                            nombre: msg.from.first_name || "un oyente", 
+                            texto: `pidió la canción "${track.info}"`, 
+                            fecha: new Date() 
+                        };
+                        bot.sendMessage(msg.chat.id, `✅ ¡Listo! "${track.info}" ya está en programación.`);
+                    } else {
+                        bot.sendMessage(msg.chat.id, "❌ Fallo al subir a la emisora.");
+                    }
+                } else {
+                    bot.sendMessage(msg.chat.id, "No encontré esa canción.");
+                }
+            } catch (error) {
+                bot.sendMessage(msg.chat.id, "Error procesando tu pedido.");
+            }
+            return;
+        }
+
+        // Ignorar otros comandos
+        if (msg.text.startsWith('/')) return;
+
+        // Saludo de texto normal
+        ultimoSaludo = { 
+            nombre: msg.from.first_name || "un oyente", 
+            texto: msg.text, 
+            fecha: new Date() 
+        };
+        bot.sendMessage(msg.chat.id, "¡Recibido! Tu saludo va para el aire.");
+    });
+
+} else {
+    console.error("⚠️ Bot de Telegram: DESACTIVADO. Falta la variable TELEGRAM_TOKEN en el .env");
+}
 
 // ======= 3. FUNCIONES DE APOYO =======
 
