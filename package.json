@@ -1,6 +1,6 @@
 {
   "name": "radio-ia",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "description": "Locutor Virtual Pro con Salomé para La Fronterísima",
   "main": "server.js",
   "scripts": {
@@ -11,9 +11,9 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-   "axios": "^1.7.0",
+    "axios": "^1.7.0",
     "dotenv": "^16.4.5",
-    "@ms-edge-tts/node": "^1.2.0",
+    "edge-tts-node": "^0.0.3",
     "express": "^4.19.2",
     "form-data": "^4.0.0",
     "node-telegram-bot-api": "^0.66.0",
