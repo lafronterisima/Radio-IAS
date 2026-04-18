@@ -1,20 +1,16 @@
-FROM node:20-slim
+FROM node:20
 
-# Solo lo necesario
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+# Instalamos ffmpeg para las mezclas de audio de Salomé
+RUN apt-get update && apt-get install -y ffmpeg
 
 WORKDIR /app
 
 COPY package*.json ./
-
 RUN npm install
 
 COPY . .
 
-EXPOSE 8000
-
-ENV NODE_ENV=production
+# Puerto obligatorio para Hugging Face
+EXPOSE 7860
 
 CMD ["node", "server.js"]
