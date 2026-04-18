@@ -399,7 +399,7 @@ app.post("/redactar-guion", async (req, res) => {
 app.get("/health", (req, res) => res.sendStatus(200));
 
 // ======= 7. INICIO =======
-const PORT = process.env.PORT || 8000;
+const PORT = process.env.PORT || 7860;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`馃殌 La Fronter铆sima Nivel 5 activada en puerto ${PORT}`);
     setTimeout(autoReporte, 5000);
