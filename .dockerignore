@@ -1,7 +1,23 @@
+# Dependencias (Se instalan directamente en el servidor)
 node_modules
-npm-debug.log
+npm-debug.log*
+
+# Archivos de audio temporales (Para que no se suban tus pruebas locales)
+v_*.mp3
+v_*.ogg
+prod_*.mp3
+tmp_track.mp3
+dj_auto.mp3
+Redactor_ia.mp3
+
+# Secretos y Configuración (Koyeb usa sus propias Variables de Entorno)
 .env
 .git
-v_*.mp3
-prod_*.mp3
-tmp_*.mp3
+.gitignore
+
+# Archivos de sistema y carpetas innecesarias
+.DS_Store
+Thumbs.db
+README.md
+Dockerfile
+.dockerignore
