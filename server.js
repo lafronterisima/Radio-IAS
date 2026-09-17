@@ -1,4 +1,3 @@
- 
 require('dotenv').config();
 const cors = require('cors');
 const express = require("express");
@@ -10,10 +9,12 @@ const path = require("path");
 const crypto = require("crypto");
 const TelegramBot = require('node-telegram-bot-api');
 const { OpenAI } = require("openai");
-const MSTTS = require("ms-tts");
+
+// Importación e instanciación correcta de Edge/Microsoft Speech TTS
+const { MSSpeech } = require("msspeech"); 
 
 const app = express();
-const msTts = new MSTTS();
+const msTts = new MSSpeech();
 
 // ======= 1. MIDDLEWARES & CONFIGURACIÓN =======
 app.use(express.json());
@@ -120,7 +121,7 @@ if (bot) {
             });
 
             const guionVisual = response.choices[0].message.content;
-            const pathVoz = `v_foto_${crypto.randomUUID()}.mp3`;
+            const pathVoz = path.join(__dirname, `v_foto_${crypto.randomUUID()}.mp3`);
 
             await generarVoz(guionVisual, pathVoz);
             await producirYSubir(pathVoz, "Saludo_Foto.mp3", true);
@@ -236,9 +237,11 @@ async function redactarIA(prompt) {
 
 async function generarVoz(texto, archivoDestino) {
     try {
-        await msTts.setVoice("es-CO-SalmeNeural");
-        const buffer = await msTts.getAudio(texto);
-        fs.writeFileSync(archivoDestino, buffer);
+        // Generación de TTS mediante buffer compatible con Microsoft Speech Edge
+        const result = await msTts.toFile(archivoDestino, texto, {
+            voice: "es-CO-SalomeNeural"
+        });
+        return result;
     } catch (e) { 
         console.error("❌ Error MS-TTS:", e.message); 
         throw e; 
@@ -247,11 +250,12 @@ async function generarVoz(texto, archivoDestino) {
 
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     if (!fs.existsSync(archivoVoz) || fs.statSync(archivoVoz).size === 0) return;
-    const tempSalida = `prod_${crypto.randomUUID()}.mp3`;
-    const fondo = "fondo.mp3";
+    const tempSalida = path.join(__dirname, `prod_${crypto.randomUUID()}.mp3`);
+    const fondo = path.join(__dirname, "fondo.mp3");
+    
     let cmd = (conFondo && fs.existsSync(fondo))
-    ? `ffmpeg -y -i ${fondo} -i ${archivoVoz} -filter_complex "[0:a]volume=0.10[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k ${tempSalida}`
-    : `ffmpeg -y -i ${archivoVoz} -af "volume=1.6" -c:a libmp3lame -b:a 128k ${tempSalida}`;
+    ? `ffmpeg -y -i "${fondo}" -i "${archivoVoz}" -filter_complex "[0:a]volume=0.10[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k "${tempSalida}"`
+    : `ffmpeg -y -i "${archivoVoz}" -af "volume=1.6" -c:a libmp3lame -b:a 128k "${tempSalida}"`;
     
     return new Promise((resolve) => {
         exec(cmd, async (error) => {
@@ -281,7 +285,6 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
 
 // ======= 5. MÓDULOS DE AUTOGENERACIÓN =======
 
-// A. Hora, Clima e Interacción con Oyentes
 async function autoReporte() {
     try {
         const clim = await axios.get("https://api.open-meteo.com/v1/forecast?latitude=3.4372&longitude=-76.5225&current_weather=true");
@@ -298,7 +301,7 @@ async function autoReporte() {
         const prompt = `Intervención de radio. Hora actual: ${hora}. Canción sonar/sonando: "${np.titulo}" de ${np.artista}. Clima actual: ${Math.round(clim.data.current_weather.temperature)}°C. ${extras} Redacta una locución enérgica dando la hora y el reporte.`;
         
         const guion = await redactarIA(prompt);
-        const pathVoz = `v_auto_${crypto.randomUUID()}.mp3`;
+        const pathVoz = path.join(__dirname, `v_auto_${crypto.randomUUID()}.mp3`);
         
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "dj_auto.mp3", true); 
@@ -306,32 +309,30 @@ async function autoReporte() {
     } catch (e) { console.error("Error AutoReporte:", e.message); }
 }
 
-// B. Comentario sobre el tema actual (Intro de canción)
 async function autoComentarioCancion() {
     try {
         const np = await obtenerAhoraSuena();
         const prompt = `Crea una presentación corta de radio (máximo 250 caracteres) para anunciar la canción "${np.titulo}" del artista "${np.artista}". Añade un dato curioso o frase carismática sobre este género musical.`;
         
         const guion = await redactarIA(prompt);
-        const pathVoz = `v_track_${crypto.randomUUID()}.mp3`;
+        const pathVoz = path.join(__dirname, `v_track_${crypto.randomUUID()}.mp3`);
         
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "intro_cancion.mp3", true);
     } catch (e) { console.error("Error AutoComentario:", e.message); }
 }
 
-// C. Promos, Efemérides y Cultura
 async function autoRedactorIA() {
     try {
         const prompt = `Escribe un mensaje de radio alegre y rumbero sobre cultura, sabor latino o una frase motivacional. Finaliza obligatoriamente diciendo: "Notas surcando fronteras". Máximo 300 caracteres.`;
         const guion = await redactarIA(prompt);
-        const pathVoz = `v_red_${crypto.randomUUID()}.mp3`;
+        const pathVoz = path.join(__dirname, `v_red_${crypto.randomUUID()}.mp3`);
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "Redactor_ia.mp3", true);
     } catch (e) { console.error("Error Redactor:", e.message); }
 }
 
-// ======= 6. RUTAS API (NORTHFLANK) =======
+// ======= 6. RUTAS API =======
 
 app.get('/oyente-conectado', async (req, res) => {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -359,7 +360,7 @@ app.post('/login', (req, res) => {
 });
 
 app.post("/procesar-locucion", async (req, res) => {
-    const pathVoz = `v_man_${crypto.randomUUID()}.mp3`;
+    const pathVoz = path.join(__dirname, `v_man_${crypto.randomUUID()}.mp3`);
     const { texto, conFondo, nombre } = req.body;
     let nombreFinal = nombre ? nombre.trim().replace(/\s+/g, '_') : "Redactor_ia";
     if (!nombreFinal.endsWith(".mp3")) nombreFinal += ".mp3";
@@ -380,19 +381,17 @@ app.post("/redactar-guion", async (req, res) => {
 
 app.get("/health", (req, res) => res.sendStatus(200));
 
-// ======= 7. INICIO Y PROGRAMADOR AUTOMÁTICO (SCHEDULER) =======
+// ======= 7. INICIO Y PROGRAMADOR AUTOMÁTICO =======
 
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 La Fronterísima Autogenerativa ONLINE en el puerto ${PORT}`);
     
-    // Ejecuciones iniciales al arrancar la app
     setTimeout(autoReporte, 5000);
     setTimeout(autoComentarioCancion, 15000);
     setTimeout(autoRedactorIA, 30000); 
 
-    // Bucle continuo de autogeneración (Timers intercalados)
-    setInterval(autoReporte, 12 * 60 * 1000);           // Cada 12 min (Hora, clima, oyente)
-    setInterval(autoComentarioCancion, 22 * 60 * 1000);  // Cada 22 min (Intro a la canción en emisión)
-    setInterval(autoRedactorIA, 45 * 60 * 1000);         // Cada 45 min (Mensaje cultural / Identificador)
+    setInterval(autoReporte, 12 * 60 * 1000);
+    setInterval(autoComentarioCancion, 22 * 60 * 1000);
+    setInterval(autoRedactorIA, 45 * 60 * 1000);
 });
