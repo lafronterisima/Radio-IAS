@@ -5,7 +5,7 @@ const axios = require("axios");
 const fs = require("fs");
 const fsPromises = fs.promises;
 const FormData = require("form-data");
-const { exec } = require("child_process");
+const { execFile } = require("child_process");
 const path = require("path");
 const TelegramBot = require('node-telegram-bot-api');
 const { OpenAI } = require("openai");
@@ -15,7 +15,6 @@ const app = express();
 app.use(express.json());
 
 // ======= 1. CONFIGURACIÓN Y MIDDLEWARES =======
-// Configuración de CORS corregida (única declaración)
 const allowedOrigins = ['https://lafronterisima.stream'];
 app.use(cors({
     origin: (origin, callback) => {
@@ -47,6 +46,17 @@ const AZURA_API_UPLOAD = `${AZURA_BASE}/files/upload`;
 
 const openai = new OpenAI({ apiKey: KEYS.OPENAI });    
 
+// Middleware de Autenticación para Endpoints de Administración
+const autenticarReq = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const pwd = req.body.password || (authHeader ? authHeader.replace('Bearer ', '') : null);
+    if (KEYS.PASSWORD && pwd === KEYS.PASSWORD) {
+        next();
+    } else {
+        res.status(401).json({ error: "No autorizado" });
+    }
+};
+
 // ======= 2. TELEGRAM (SALUDOS Y PEDIDOS) =======
 const botOptions = {
     polling: {
@@ -77,7 +87,7 @@ if (bot) {
         const chatId = msg.chat.id;
         const nombre = msg.from.first_name || "oyente";
         const bienvenida = `¡Hola ${nombre}! 👋 Bienvenido a **La Fronterísima**, la radio del futuro.\n\n` +
-            `Soy **Salomé**, tu locutora IA. Puedes enviarme fotos de lo que estás haciendo, notas de voz o pedir canciones.\n\n` +
+            `Soy **Salomé**, tu locutora IA. Puedes enviarme fotos de lo que estás haciendo, notas de voz o pedir canciones con /pedir.\n\n` +
             `⚠️ **Aviso Importante:** Al enviar tu foto o audio, autorizas a La Fronterísima para comentarlos al aire mediante nuestra locutora virtual Salomé. ¡Gracias por ser parte del show! 🎙️✨`;
 
         bot.sendMessage(chatId, bienvenida, { parse_mode: 'Markdown' }).catch(e => console.error("Error /start:", e.message));
@@ -89,8 +99,9 @@ if (bot) {
         
         bot.sendMessage(chatId, "🎧 Salomé está escuchando tu audio...").catch(() => {});
         
-        const tempVoice = path.join(__dirname, `v_${Date.now()}.ogg`);
-        const respuestaVozPath = path.join(__dirname, `res_${Date.now()}.mp3`);
+        const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const tempVoice = path.join(__dirname, `v_${uniqueId}.ogg`);
+        const respuestaVozPath = path.join(__dirname, `res_${uniqueId}.mp3`);
 
         try {
             const fileUrl = await bot.getFileLink(msg.voice.file_id);
@@ -140,13 +151,16 @@ if (bot) {
                         const busqueda = textoMinusculas.replace(/ponme|pon|quiero escuchar|la canción|por favor|suéltate/g, "").trim();
                         bot.sendMessage(chatId, `🎶 ¡Oído! Buscando "${busqueda}" para ponerla al aire...`).catch(() => {});
                         
-                        buscarMusicaJamendo(busqueda, true).then((track) => {
+                        try {
+                            const track = await buscarMusicaJamendo(busqueda, true);
                             if (track) {
-                                descargarYSubirAzura(track);
+                                await descargarYSubirAzura(track);
                             } else {
                                 bot.sendMessage(chatId, `📻 No encontré "${busqueda}", ¡pero tu saludo va para el aire!`).catch(() => {});
                             }
-                        }).catch(err => console.error("Error en búsqueda diferida:", err));
+                        } catch (err) {
+                            console.error("Error en búsqueda diferida:", err);
+                        }
                     }
 
                 } catch (err) { 
@@ -181,7 +195,8 @@ if (bot) {
             });
 
             const guionVisual = response.choices[0].message.content;
-            const pathVoz = `v_foto_${Date.now()}.mp3`;
+            const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+            const pathVoz = path.join(__dirname, `v_foto_${uniqueId}.mp3`);
 
             await generarVoz(guionVisual, pathVoz);
             await producirYSubir(pathVoz, "Saludo_Foto.mp3", true);
@@ -198,15 +213,18 @@ if (bot) {
         if (!msg.text || msg.text.startsWith('/')) {
             if (msg.text?.startsWith('/pedir')) {
                 const busqueda = msg.text.replace('/pedir ', '').trim();
-                buscarMusicaJamendo(busqueda, true).then((track) => {
+                try {
+                    const track = await buscarMusicaJamendo(busqueda, true);
                     if (track) {
-                        descargarYSubirAzura(track);
+                        await descargarYSubirAzura(track);
                         ultimoSaludo = { nombre: msg.from.first_name || "un oyente", texto: `pidió la canción: ${busqueda}`, fecha: new Date(), esPedido: true, ubicacion: "" };
                         bot.sendMessage(msg.chat.id, "✅ ¡Programada! En breve suena.").catch(() => {});
                     } else {
                         bot.sendMessage(msg.chat.id, "❌ No encontré esa canción exacta, intenta con otra.").catch(() => {});
                     }
-                }).catch(err => console.error("Error procesando /pedir:", err));
+                } catch (err) {
+                    console.error("Error procesando /pedir:", err);
+                }
             }
             return;
         }
@@ -232,7 +250,7 @@ async function buscarMusicaJamendo(query, esBusquedaEspecifica = false) {
 }
 
 async function descargarYSubirAzura(track) {
-    const uniqueID = Date.now();
+    const uniqueID = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const tempFile = path.join(__dirname, `tmp_${uniqueID}_track.mp3`);
     const fileName = `estreno_${uniqueID}.mp3`;
     const filePath = `Musica_Nueva/${fileName}`;
@@ -286,7 +304,7 @@ async function obtenerAhoraSuena() {
 
 function limpiarTexto(t) {
     if (!t) return "";
-    return t.replace(/[*#_~]/g, '').replace(/Soy Lupe|Lupe de La Fronterísima|Locutora:|Lupe:/gi, '').trim();
+    return t.replace(/[*#_~]/g, '').replace(/Soy Salomé|Salomé de La Fronterísima|Locutora:|Salomé:/gi, '').trim();
 }
 
 // ======= 4. IA Y VOZ =======
@@ -296,7 +314,7 @@ async function redactarIA(prompt) {
         const response = await openai.chat.completions.create({
             model: "gpt-4o-mini",
             messages: [
-                { role: "system", content: "Eres Salome, locutora de La Fronterisima. Alegre y carismática. Máximo 350 caracteres. Solo texto plano." },
+                { role: "system", content: "Eres Salomé, locutora de La Fronterísima. Alegre y carismática. Máximo 350 caracteres. Solo texto plano." },
                 { role: "user", content: prompt }
             ],
             max_tokens: 400 
@@ -323,16 +341,18 @@ async function generarVoz(texto, archivoDestino) {
 
 async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
     if (!fs.existsSync(archivoVoz) || fs.statSync(archivoVoz).size === 0) return;
-    const tempSalida = `prod_${Date.now()}.mp3`;
-    const fondo = "fondo.mp3";
+    const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const tempSalida = path.join(__dirname, `prod_${uniqueId}.mp3`);
+    const fondo = path.join(__dirname, "fondo.mp3");
     
-    // Comando FFmpeg corregido con comillas simples para seguridad
-    let cmd = (conFondo && fs.existsSync(fondo))
-    ? `ffmpeg -y -i "${fondo}" -i "${archivoVoz}" -filter_complex "[0:a]volume=0.10[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest" -c:a libmp3lame -b:a 128k "${tempSalida}"`
-    : `ffmpeg -y -i "${archivoVoz}" -af "volume=1.6" -c:a libmp3lame -b:a 128k "${tempSalida}"`;
-    
+    // Configuración segura usando execFile (Previene Inyección de Comandos)
+    const tieneFondo = conFondo && fs.existsSync(fondo);
+    const ffmpegArgs = tieneFondo 
+        ? ['-y', '-i', fondo, '-i', archivoVoz, '-filter_complex', '[0:a]volume=0.10[bg];[1:a]volume=1.8[v];[bg][v]amix=inputs=2:duration=shortest', '-c:a', 'libmp3lame', '-b:a', '128k', tempSalida]
+        : ['-y', '-i', archivoVoz, '-af', 'volume=1.6', '-c:a', 'libmp3lame', '-b:a', '128k', tempSalida];
+
     return new Promise((resolve) => {
-        exec(cmd, async (error) => {
+        execFile('ffmpeg', ffmpegArgs, async (error) => {
             if (error) { console.error("FFmpeg Error:", error); return resolve(); }
             
             try {
@@ -377,7 +397,6 @@ async function producirYSubir(archivoVoz, nombreFinal, conFondo) {
             } catch (e) { 
                 console.error("❌ Error crítico en el flujo de reproducción inmediata de AzuraCast:", e.message);
             } finally {
-                // Limpieza de disco asíncrona
                 for (const f of [archivoVoz, tempSalida]) {
                     if (fs.existsSync(f)) await fsPromises.unlink(f).catch(() => {});
                 }
@@ -404,7 +423,8 @@ async function autoReporte() {
 
         const prompt = `Eres Salomé locutora virtual. Hora: ${hora}. suena: ${np.titulo}. Clima: ${Math.round(clim.data.current_weather.temperature)}°C. ${extras} Redacta un guion alegre de unos 100 caracteres.`;
         const guion = await redactarIA(prompt);
-        const pathVoz = `v_auto_${Date.now()}.mp3`;
+        const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const pathVoz = path.join(__dirname, `v_auto_${uniqueId}.mp3`);
         
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "dj_auto.mp3", true); 
@@ -416,7 +436,8 @@ async function autoRedactorIA() {
     try {
         const prompt = `Un mensaje rumbero positivo, dato musical o efeméride. Termina: Notas surcando fronteras. Máximo 300 caracteres.`;
         const guion = await redactarIA(prompt);
-        const pathVoz = `v_red_${Date.now()}.mp3`;
+        const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const pathVoz = path.join(__dirname, `v_red_${uniqueId}.mp3`);
         await generarVoz(guion, pathVoz);
         await producirYSubir(pathVoz, "Redactor_ia.mp3", true);
     } catch (e) { console.error("Error Redactor:", e.message); }
@@ -429,7 +450,7 @@ app.get('/oyente-conectado', async (req, res) => {
     const cleanIp = ip.split(',')[0]; 
 
     try {
-        const geo = await axios.get(`http://ip-api.com/json/${cleanIp}?fields=city,country`);
+        const geo = await axios.get(`https://ip-api.com/json/${cleanIp}?fields=city,country`);
         if (geo.data && geo.data.city) {
             ultimoSaludo = {
                 nombre: "un oyente",
@@ -449,11 +470,14 @@ app.post('/login', (req, res) => {
     else res.status(401).json({ success: false });
 });
 
-app.post("/procesar-locucion", async (req, res) => {
-    const pathVoz = `v_man_${Date.now()}.mp3`;
+app.post("/procesar-locucion", autenticarReq, async (req, res) => {
+    const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const pathVoz = path.join(__dirname, `v_man_${uniqueId}.mp3`);
     const { texto, conFondo, nombre } = req.body;
-    let nombreFinal = nombre ? nombre.trim().replace(/\s+/g, '_') : "Redactor_ia";
-    if (!nombreFinal.endsWith(".mp3")) nombreFinal += ".mp3";
+    
+    let nombreLimpio = nombre ? nombre.trim().replace(/[^a-zA-Z0-9_-]/g, '_') : "Redactor_ia";
+    let nombreFinal = nombreLimpio.endsWith(".mp3") ? nombreLimpio : `${nombreLimpio}.mp3`;
+    
     try {
         await generarVoz(texto, pathVoz);
         await producirYSubir(pathVoz, nombreFinal, conFondo);
@@ -461,7 +485,7 @@ app.post("/procesar-locucion", async (req, res) => {
     } catch (e) { res.status(500).send("Error"); }
 });
 
-app.post("/redactar-guion", async (req, res) => {
+app.post("/redactar-guion", autenticarReq, async (req, res) => {
     try {
         const { idea } = req.body;
         const guion = await redactarIA(`Genera un guion rumbero sobre: ${idea}. Máximo 350 caracteres.`);
