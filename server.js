@@ -21,7 +21,7 @@ app.use(express.json());
 
 // Permite solicitudes desde el dominio de la emisora
 app.use(cors({
-    origin: ['https://lafronterisima.stream', 'http://localhost:3000']
+    origin: ['https://lafronterisima.stream']
 }));
 
 app.set('trust proxy', true);
