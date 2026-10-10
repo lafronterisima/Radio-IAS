@@ -1,21 +1,22 @@
 {
   "name": "radio-ia",
-  "version": "5.1.0",
+  "version": "5.0.0",
   "description": "Locutor Virtual Pro con Salomé para La Fronterísima",
-  "main": "servers.js",
+  "main": "server.js",
   "scripts": {
-    "start": "node servers.js",
-    "dev": "node --watch servers.js"
+    "start": "node server.js",
+    "dev": "node --watch server.js"
   },
   "engines": {
     "node": ">=20.0.0"
   },
   "dependencies": {
     "axios": "^1.7.0",
+    "cors": "^2.8.6",
     "dotenv": "^16.4.5",
-    "@juntao/edge-tts": "^1.0.3",
     "express": "^4.19.2",
     "form-data": "^4.0.0",
+    "google-tts-api": "^2.0.2",
     "node-telegram-bot-api": "^0.66.0",
     "openai": "^4.52.0"
   },
@@ -24,7 +25,7 @@
     "ia",
     "tts",
     "azuracast",
-    "edge-tts-node",
+    "edge-tts",
     "automation",
     "colombia"
   ],
