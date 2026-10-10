@@ -2,10 +2,10 @@
   "name": "radio-ia",
   "version": "5.1.0",
   "description": "Locutor Virtual Pro con Salomé para La Fronterísima",
-  "main": "server.js",
+  "main": "servers.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
+    "start": "node servers.js",
+    "dev": "node --watch servers.js"
   },
   "engines": {
     "node": ">=20.0.0"
